@@ -4,8 +4,8 @@ project:
 
 website:
   title: "SARIMA Modeling of Australian Wool Trade Cycles"
-  site-url: "https://Yemunn-Soe.github.io/Forecasting-ASX-Stocks"
-  repo-url: "https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks"
+  site-url: "https://Yemunn-Soe.github.io/Forecasting-Wool-Trade-with-SARIMA"
+  repo-url: "https://github.com/Yemunn-Soe/Forecasting-Wool-Trade-with-SARIMA"
   repo-actions: [edit, issue]
   navbar:
     left:
