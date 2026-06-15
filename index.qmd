@@ -2136,7 +2136,7 @@ We would like to express our sincere gratitude to Dr. Haydar Demirhan and Dr. Zh
 
 With the primary analysis of the full series complete, the essential next step is to address the structural change point identified in the data. In time-series modeling, a major structural break signifies that the underlying forces driving the data have fundamentally shifted. Because older patterns can distort current forecasts, standard econometric practice requires isolating the data after this shift and re-running the entire analytical pipeline.
 
-```{r apx_load_data}
+```{r apx-load-data}
 # Load data and build post-break sub-series
 apx_Trade <- read.csv("International_Trade_in_Goods.csv", header = TRUE)
 
@@ -2153,7 +2153,7 @@ apx_WoolTS <- window(apx_WoolTS_full, start = c(1990, 1))
 
 To account for this, we conducted a dedicated post-break analysis on a truncated series spanning January 1990 to February 2026. This process yielded a SARIMA\$(0,1,2)(2,1,2)\_{12}\$ model, which differs structurally from our full-series model. This divergence confirms that the data-generating processes of the two periods are genuinely distinct, validating the decision to analyze them separately. To ensure the reliability of this new model, we implemented a post-break reserved sample scheme. The complete methodology and empirical results for this step are detailed in Appendix.
 
-```{r apx_fig_A1_ts-post-break}
+```{r fig-ts-plot-post-break}
 #| label: fig-ts-plot-post-break
 #| fig-cap: "Wool & sheepskins monthly trade value (AUD million), 1920–2026."
 #| fig-height: 4
@@ -2166,7 +2166,7 @@ plot_ts(
 )
 ```
 
-```{r apx_fig_frc_selected-post-break}
+```{r fig-forecast-30month-post-break}
 #| label: fig-forecast-30month-post-break
 #| fig-cap: "30-month ahead forecast: SARIMA(0,1,2)(2,1,2)[12]."
 #| fig-height: 5
