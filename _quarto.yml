@@ -1,0 +1,42 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "SARIMA Modeling of Australian Wool Trade Cycles"
+  site-url: "https://Yemunn-Soe.github.io/Forecasting-ASX-Stocks"
+  repo-url: "https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks"
+  repo-actions: [edit, issue]
+  navbar:
+    left:
+      - href: Wool_Trade_SARIMA.qmd
+        text: Analysis
+      - href: About.qmd
+        text: So What
+    right:
+      - icon: linkedin
+        href: "https://www.linkedin.com/in/yemunn-soe/"
+        aria-label: LinkedIn
+      - icon: github
+        href: "https://github.com/Yemunn-Soe/Forecasting-Wool-Trade-with-SARIMA"
+        aria-label: GitHub
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 4
+    toc-location: left
+    toc-title: "Contents"
+    code-fold: true
+    code-tools: true
+    code-overflow: wrap
+    code-copy: true
+    fig-align: center
+    fig-width: 9
+    fig-height: 5
+    number-sections: true
+    smooth-scroll: true
+    embed-resources: true
+    html-math-method: mathjax
+    highlight-style: github

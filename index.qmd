@@ -1,0 +1,2234 @@
+---
+title: "Forecasting Wool Trade"
+subtitle: "SARIMA Modeling of Australian Wool Trade Cycles"
+author: "Yemunn Soe"
+date: today
+format:
+  html:
+    code-fold: true
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    fig-cap-location: bottom
+    theme: flatly
+---
+
+------------------------------------------------------------------------
+
+```{r}
+#| label: setup
+#| include: false
+
+rm(list = ls())
+set.seed(1234567)
+
+library(TSA)
+library(broom)
+library(knitr)
+library(dplyr)
+library(lmtest)
+library(tseries)
+library(forecast)
+library(kableExtra)
+```
+
+```{r}
+#| label: functions
+#| include: false
+
+# PLOTTING HELPERS
+
+plot_ts <- function(ts_data, main, ylab = "AUD (Million)") {
+  plot(ts_data, type = "o", ylab = ylab, xlab = "Year",
+       cex.main = 0.9, main = main)
+}
+
+plot_norm <- function(ts_data, qq_title, hist_title,
+                      xlab = "AUD (Million)") {
+  par(mfrow = c(1, 2), cex.main = 0.9)
+  qqnorm(ts_data, main = qq_title, pch = 16, cex = 0.7)
+  qqline(ts_data, col = "blue", lty = 2)
+  hist(ts_data, xlab = xlab, main = hist_title,
+       col = "lightgrey", border = "black")
+  par(mfrow = c(1, 1))
+}
+
+plot_acf_pacf <- function(ts_data, acf_title, pacf_title, lag.max = 60) {
+  par(mfrow = c(1, 2), cex.main = 0.9)
+  acf(ts_data,  lag.max = lag.max, main = acf_title,
+      ylab = "ACF",  xlab = "Lag (years)")
+  pacf(ts_data, lag.max = lag.max, main = pacf_title,
+       ylab = "PACF", xlab = "Lag (years)")
+  par(mfrow = c(1, 1))
+}
+
+plot_arima_fitted <- function(model, ts_data, model_name) {
+  plot(ts_data, type = "o", ylab = "AUD (Million)", xlab = "Year",
+       cex.main = 0.9,
+       main = paste0("Fitted ", model_name, " vs. observed series."),
+       cex = 0.4, pch = 16)
+  lines(fitted(model), col = "blue", lwd = 1.5)
+  legend("topleft",
+         legend = c("Observed", paste("Fitted:", model_name)),
+         col = c("black", "blue"), lty = 1,
+         pch = c(16, NA), lwd = c(1, 1.5),
+         cex = 0.7, bty = "n")
+}
+
+# STATISTICAL TEST WRAPPERS
+
+run_sw <- function(ts_data, caption_text) {
+  sw  <- shapiro.test(as.numeric(ts_data))
+  p_f <- format(sw$p.value, scientific = TRUE, digits = 3)
+  df  <- data.frame("W statistic" = round(sw$statistic, 4),
+                    "p-value"     = p_f,
+                    check.names   = FALSE)
+  list(result = sw,
+       table  = knitr::kable(df, caption = caption_text,
+                             align = "c", row.names = FALSE,
+                             booktabs = TRUE))
+}
+
+run_adf <- function(ts_data, caption_text) {
+  adf_res <- adf.test(ts_data, alternative = "stationary")
+  p_f     <- format(adf_res$p.value, scientific = TRUE, digits = 3)
+  df <- data.frame(
+    "Dickey-Fuller statistic" = round(as.numeric(adf_res$statistic), 4),
+    "Lags used"               = adf_res$parameter,
+    "p-value"                 = p_f,
+    check.names = FALSE)
+  list(result = adf_res,
+       table  = knitr::kable(df, caption = caption_text,
+                             align = "c", row.names = FALSE,
+                             booktabs = TRUE))
+}
+
+check_stationarity <- function(ts_data, table_title) {
+  adf_res  <- adf.test(ts_data)
+  pp_res   <- pp.test(ts_data)
+  kpss_res <- kpss.test(ts_data)
+
+  adf_v  <- ifelse(adf_res$p.value  < 0.05,
+                   "Reject H0 (Stationary)", "Fail to Reject H0")
+  pp_v   <- ifelse(pp_res$p.value   < 0.05,
+                   "Reject H0 (Stationary)", "Fail to Reject H0")
+  kpss_v <- ifelse(kpss_res$p.value > 0.05,
+                   "Fail to Reject H0 (Stationary)", "Reject H0 (Non-Stationary)")
+
+  df <- data.frame(
+    "Statistical Test"     = c("Augmented Dickey-Fuller (ADF)",
+                               "Phillips-Perron (PP)",
+                               "KPSS Test"),
+    "Null Hypothesis (H0)" = c("Series is non-stationary",
+                               "Series is non-stationary",
+                               "Series is stationary"),
+    "Test Statistic"       = c(round(unname(adf_res$statistic),  4),
+                               round(unname(pp_res$statistic),   3),
+                               round(unname(kpss_res$statistic), 3)),
+    "p-value"              = c(round(adf_res$p.value,  4),
+                               round(pp_res$p.value,   4),
+                               round(kpss_res$p.value, 3)),
+    "Result"               = c(adf_v, pp_v, kpss_v),
+    check.names = FALSE
+  )
+
+  list(
+    adf   = adf_res,
+    pp    = pp_res,
+    kpss  = kpss_res,
+    table = knitr::kable(df, caption = table_title, align = "llccl")
+  )
+}
+
+make_coef_table <- function(model, caption_text) {
+  ct <- lmtest::coeftest(model)
+  df <- data.frame(
+    Coefficient = rownames(ct),
+    Estimate    = round(ct[, 1], 4),
+    Std.Error   = round(ct[, 2], 4),
+    z.value     = round(ct[, 3], 4),
+    p.value     = round(ct[, 4], 4),
+    Sig = ifelse(ct[, 4] < 0.001, "***",
+          ifelse(ct[, 4] < 0.01,  "**",
+          ifelse(ct[, 4] < 0.05,  "*", ""))))
+  knitr::kable(df, caption = caption_text,
+               align = "c", row.names = FALSE, booktabs = TRUE)
+}
+
+# CONTRIBUTED FUNCTIONS (Tran & Pham, MATH1318, 2024)
+# Modification from original:
+#   Original   : seasonal lags only were highlighted in red.
+#   Updated    : ordinary lags (Lag < 1) are additionally highlighted in navy
+#               blue to visually distinguish non-seasonal from seasonal
+#               autocorrelation structure in a single plot.
+
+.seasonal_helper <- function(class = c("acf", "pacf"), ...) {
+  params <- as.list(match.call(expand.dots = TRUE))[-1]
+  params <- params[names(params) != "class"]
+
+  acf_values <- if (class[1] == "acf")
+    do.call(acf, c(params, list(plot = FALSE))) else
+    do.call(pacf, c(params, list(plot = FALSE)))
+
+  acf_data <- data.frame(Lag = as.numeric(acf_values$lag),
+                         ACF = as.numeric(acf_values$acf))
+
+  seasonal_lags <- acf_data$Lag %% 1 == 0
+  ordinary_lags <- acf_data$Lag < 1
+
+  if (class[1] == "acf")
+    do.call(acf, c(params, list(plot = TRUE))) else
+    do.call(pacf, c(params, list(plot = TRUE)))
+
+  for (i in which(ordinary_lags))
+    segments(x0 = acf_data$Lag[i], y0 = 0,
+             x1 = acf_data$Lag[i], y1 = acf_data$ACF[i],
+             col = "navy", lwd = 1.5)
+
+  for (i in which(seasonal_lags))
+    segments(x0 = acf_data$Lag[i], y0 = 0,
+             x1 = acf_data$Lag[i], y1 = acf_data$ACF[i],
+             col = "red", lwd = 1.5)
+}
+
+seasonal_acf  <- function(...) .seasonal_helper(class = "acf",  ...)
+seasonal_pacf <- function(...) .seasonal_helper(class = "pacf", ...)
+
+plot_seasonal_acf_pacf <- function(ts_data, acf_title, pacf_title,
+                                   lag.max = 60) {
+  par(mfrow = c(1, 2), cex.main = 0.9)
+  seasonal_acf(ts_data,  lag.max = lag.max, main = acf_title,
+               ylab = "ACF",  xlab = "Lag (years)")
+  seasonal_pacf(ts_data, lag.max = lag.max, main = pacf_title,
+                ylab = "PACF", xlab = "Lag (years)")
+  par(mfrow = c(1, 1))
+}
+
+# sort.score — rank a model-comparison data frame by AIC or BIC
+sort.score <- function(x, score = c("bic", "aic")) {
+  if      (score == "aic") x[with(x, order(AIC)), ]
+  else if (score == "bic") x[with(x, order(BIC)), ]
+  else warning('score must be "aic" or "bic"')
+}
+
+# residual.analysis: six-panel residual diagnostic
+residual.analysis <- function(model, std = TRUE, start = 2, shift = 0,
+                               model_class = c("ARIMA","GARCH","ARMA-GARCH",
+                                         "garch","fGARCH")[1]) {
+  library(TSA)
+  library(FitAR)
+
+  if (model_class == "ARIMA") {
+    res.model <- na.omit(
+      if (std) stats::lag(rstandard(model), shift) else
+               stats::lag(residuals(model),  shift))
+  } else if (model_class %in% c("GARCH","garch")) {
+    res.model <- model$residuals[start:model$n.used]
+  } else if (model_class == "ARMA-GARCH") {
+    res.model <- model@fit$residuals
+  } else if (model_class == "fGARCH") {
+    res.model <- model@residuals
+  } else {
+    stop("'model_class' must be 'ARIMA','GARCH','garch','ARMA-GARCH', or 'fGARCH'.")
+  }
+
+  lagM  <- if (length(res.model) < 30) length(res.model) - 1L else 29L
+  lags  <- seq_len(lagM)
+  pvals <- vapply(lags,
+                  function(i) Box.test(res.model, lag = i,
+                                       type = "Ljung-Box", fitdf = 0)$p.value,
+                  numeric(1))
+
+  sw_test      <- shapiro.test(as.numeric(res.model))
+  sw_pvalue    <- format(sw_test$p.value, scientific = TRUE, digits = 3)
+  sw_statistic <- round(sw_test$statistic, 4)
+
+  par(mfrow = c(3, 2))
+
+  plot(res.model, type = "o", ylab = "Standardised residuals",
+       main = "Time series plot of standardised residuals")
+  abline(h = 0)
+
+  hist(res.model, main = "Histogram of standardised residuals",
+       col = "lightgrey", border = "black")
+
+  qqnorm(res.model, main = "QQ plot of standardised residuals",
+         pch = 16, cex = 0.6)
+  qqline(res.model, col = 2)
+
+  acf(res.model, main = "ACF of standardised residuals")
+
+  plot(lags, pvals, ylim = c(0, 1), pch = 16, cex = 0.7,
+       xlab = "Lag", ylab = "p-value",
+       main = "Ljung-Box Test")
+  abline(h = 0.05, col = "red", lty = 2)
+  legend("topright", legend = "Alpha = 0.05", col = "red",
+         lty = 2, bty = "n", cex = 0.7)
+
+  plot.new()
+  text(0.5, 0.5,
+       paste("W statistic =", sw_statistic, "\n",
+             "p-value =", sw_pvalue),
+       cex = 1.2, col = "black", font = 1)
+  title(main = "Shapiro-Wilk Normality Test")
+
+  par(mfrow = c(1, 1))
+  return(invisible(res.model))
+}
+```
+
+\newpage
+
+# Introduction
+
+Australia is one of the world's largest producers and exporters of wool, with wool and sheepskin exports valued at **over AU\$3.5 billion annually** (ABS, 2023). This trade supports thousands of farming families and regional communities across New South Wales, Victoria, and Western Australia.
+
+The trade value of wool has historically been characterised by pronounced boom-bust cycles, extreme price volatility, and structural shifts driven by global demands, commodity price shocks, and policy interventions, most notably the collapse of the Australian Wool Corporation's Reserve Price Scheme in 1990–1991 (The Merino Polo, 2025).
+
+Stakeholders who require accurate forecasts include:
+
+-   **Wool producers** that make stocking and shearing decisions 6–12 months in advance
+-   **Export logistics firms** that plan shipping capacity and warehousing
+-   **Agricultural policymakers** that anticipate trade balance fluctuations
+
+If forecasts are poorly calibrated, it could lead to:
+
+1.  **Overstocking and price collapses** that could harm producers
+2.  **Understocking and missed export quantities** that could harm the trade balance
+3.  **Destabilising policy interventions** that could harm market confidence
+
+In this report, time series modelling techniques are applied to **monthly data** on the value of Australian wool and sheepskins international trade from **July 1971 to February 2026**, denominated in millions of Australian Dollars (AUD). The objective is to identify a parsimonious **Seasonal Autoregressive Integrated Moving Average (SARIMA)** model that captures both the short-run dynamics and the seasonal regularities present in the series, and to generate forecasts to inform real-world decision-making.
+
+## Objectives
+
+The specific objectives of this analysis are:
+
+1.  **Descriptive Analysis:** Visualise the monthly wool trade series (July 1971–February 2026) and compute summary statistics to identify trend, seasonality, and changing variance.
+
+2.  **Data Transformation and Normality Assessment:** Conduct an initial assessment of normality and evaluate the need for variance stabilisation. A Box-Cox transformation will be applied to determine the optimal power parameter only if required. Conduct formal testing for stationarity using the ADF test and ACF/PACF plots, implementing seasonal and non-seasonal differencing only as dictated by the diagnostic results.
+
+3.  **Model Specification:** Following the Box-Cox transformation to achieve normality and variance stabilisation, candidate Seasonal ARIMA (SARIMA) models are identified using a **residual-based model specification approach**. This iterative process, originally advocated by Box and Jenkins (1976), ensures the final model adequately captures the underlying data-generating process.
+
+4.  **Parameter Estimates and Residual Diagnostics:** Estimate all identified candidate SARIMA models using both Conditional Sum of Squares (CSS) and Maximum Likelihood (ML) methods. Following estimation, subject each candidate model to rigorous residual diagnostic evaluation to validate underlying assumptions. A model is considered adequate only if its residuals exhibit no significant autocorrelation (white noise) and an approximately normal distribution.
+
+5.  **Model Selection:** Among the adequate models, perform final selection using the Akaike Information Criterion (AIC), Bayesian Information Criterion (BIC), and in-sample accuracy metrics. The finalist model will be selected based on the lowest values across these information criteria, provided all parameter estimates are statistically significant and residual diagnostics are satisfied.
+
+6.  **Overparameterisation:** Once the top model is selected, perform an overparameterisation test by adding an extra seasonal or non-seasonal AR/MA term. This checks for overfitting and ensures parameter stability. If these extra terms are statistically insignificant, it proves the model is not overfitted, and the simpler, more parsimonious model is confirmed as the final winner.
+
+7.  **Forecasting:** The selected SARIMA model is used to generate 30-month out-of-sample forecasts with associated prediction intervals.
+
+## Data Introduction
+
+```{r}
+#| label: load_data
+
+Trade <- read.csv("International_Trade_in_Goods.csv", header = TRUE)
+```
+
+The dataset utilised in this study is sourced from the Australian Bureau of Statistics (ABS), specifically **Catalogue "5368.0: International Trade in Goods, Table 3: Goods Credits, Original, Current Prices"**. The dataset encompasses a wide range of export categories, tracking monthly **trade credits** — economic transactions that result in money flowing into Australia from foreign buyers — across major rural and non-rural economic sectors. The data consist of 656 monthly observations from July 1971 to February 2026 and include 21 trade commodity categories.
+
+To ensure the selected data would adequately support the deployment of the full spectrum of time-series modelling techniques covered this semester, an initial exploratory screening was conducted. Three candidate series were extracted for evaluation:
+
+-   **Wool & sheepskins (in AUD millions)**
+-   **Metal ores & minerals (in AUD millions)**
+-   **Meat & meat preparations (in AUD millions)**
+
+@tbl-raw-head presents the first five observations.
+
+```{r}
+#| label: tbl-raw-head
+#| tbl-cap: "First Five Observations of the Dataset"
+
+kable(head(Trade, 5), align = "c")
+```
+
+From the raw data, the original class was **data frame** and for the purpose of time series analysis, we will convert the data to a **ts** object with **start = c(1971, 7), end = c(2026, 2), frequency = 12 (monthly data)** to ensure compatibility with time series functions and maintain the temporal order of observations.
+
+Although the dataset includes three commodity categories (wool, metal ores, and meat), this analysis focuses exclusively on **wool and sheepskins** for two reasons:
+
+1.  **Economic significance:** Wool has historically been one of Australia's most valuable agricultural exports (National Museum Australia, 2025), contributing over AU\$3.5 billion annually to the national economy.
+2.  **Methodological interest:** The wool trade is known to exhibit complex dynamics, including the structural break from the 1991 Reserve Price Scheme collapse, making it suitable for time series modelling.
+
+```{r}
+#| label: class-conversion
+
+WoolTS <- ts(
+  Trade$Wool...sheepskins..in..M.,
+  start     = c(1971, 7),
+  end       = c(2026, 2),
+  frequency = 12
+)
+```
+
+# Descriptive Analysis
+
+After converting the data class from data frame to time series object, we examine the time series plot for the wool & sheepskins monthly trade value (AUD million), 1971–2026.
+
+## Time Series Plot
+
+```{r}
+#| label: fig-ts-plot
+#| fig-cap: "Wool & sheepskins monthly trade value (AUD million), 1971–2026."
+#| fig-height: 4
+#| fig-width: 7
+
+plot(WoolTS, type = "l", ylab = "AUD (Million)", xlab = "Year", cex.main = 0.9,
+     main = "Wool & sheepskins monthly trade value (AUD million), 1971–2026.")
+
+month_num <- cycle(WoolTS)
+text(x = time(WoolTS), y = WoolTS, labels = month_num, cex = 0.5)
+```
+
+@fig-ts-plot shows the time series plot of the wool & sheepskins monthly trade value. Several features stand out:
+
+1.  **Trend.** The series exhibits a pronounced stochastic **upward trend** from 1971 through the late 1980s, peaking around 1988–1989, followed by a prolonged decline through the early 1990s, after which the series settles into a lower but more stable level, with a secondary elevation visible around 2018–2021.
+
+2.  **Seasonality:** Regular within-year oscillations are visible throughout the entire sample. December (12) frequently coincides with peak trade values, while August (8) is commonly observed at low points. These recurring annual cycles confirm that a **SARIMA model with seasonal period** $s = 12$ months is appropriate.
+
+3.  **Non-constant variance:** The amplitude of fluctuations is substantially larger during the 1985–1991 commodity boom than in the surrounding decades. This **heteroscedasticity** suggests that a variance-stabilising transformation should be applied before modelling.
+
+4.  **Change Point:** The series exhibits a stark structural intervention around February 1991, representing the catastrophic collapse of the Australian Wool Corporation's Reserve Price Scheme. This intervention permanently altered the long-term trend line.
+
+5.  **Autocorrelation:** The series shows **strong autocorrelation**, with consecutive monthly values tending to move together, which will be formally assessed using ACF/PACF plots.
+
+## Summary Statistics
+
+@tbl-summary presents descriptive statistics for the series.
+
+```{r}
+#| label: tbl-summary
+#| tbl-cap: "Descriptive statistics for monthly wool and sheepskins trade value (AUD million)."
+
+Summary <- c(
+  Mean            = round(mean(WoolTS),                2),
+  Median          = round(median(WoolTS),              2),
+  "Std. Dev."     = round(sd(WoolTS),                  2),
+  Minimum         = round(min(WoolTS),                 2),
+  Maximum         = round(max(WoolTS),                 2),
+  Range           = round(max(WoolTS) - min(WoolTS),   2),
+  "N (obs.)"      = length(WoolTS)
+)
+
+knitr::kable(
+  t(as.data.frame(Summary)),
+  align = "c"
+)
+```
+
+The mean (242.5 AUD million) and median (243.5 AUD million) are close, but the standard deviation (105.88 AUD million), roughly 45% of the mean, signals **high** dispersion. These features motivate both a variance-stabilising transformation and formal stationarity testing.
+
+------------------------------------------------------------------------
+
+## Distributional Diagnostics
+
+```{r}
+#| label: fig-normality-original
+#| fig-cap: "Q-Q plot (left) and histogram (right) of the original series."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_norm(WoolTS,
+          qq_title   = "Q-Q plot: original series.",
+          hist_title = "Histogram: original series.")
+```
+
+```{r}
+#| label: tbl-sw-original
+#| tbl-cap: "Shapiro-Wilk normality test: original series."
+
+sw_orig <- run_sw(WoolTS, "Shapiro-Wilk normality test: original series.")
+sw_orig$table
+```
+
+@fig-normality-original and @tbl-sw-original confirm distributional non-normality. The Q-Q plot shows pronounced upper-tail deviation from the reference line. The histogram displays a unimodal but right-skewed distribution. The **Shapiro-Wilk test** yields $W = `r round(sw_orig$result$statistic, 4)`$ with $p = `r format(sw_orig$result$p.value, scientific = TRUE, digits = 3)`$; since this is **below** $\alpha = 0.05$, we **reject the null hypothesis of normality**. This, combined with the visual evidence of heteroscedasticity, motivates applying a **variance-stabilising power transformation** before proceeding.
+
+------------------------------------------------------------------------
+
+## Autocorrelation Function (ACF) & Partial Autocorrelation Function (PACF)
+
+```{r}
+#| label: fig-acf-pacf-original
+#| fig-cap: "ACF (left) and PACF (right) of the original series."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_seasonal_acf_pacf(
+  WoolTS,
+  acf_title  = "ACF: original series.",
+  pacf_title = "PACF: original series."
+)
+```
+
+For this monthly data, lags are expressed in years (e.g., lag 1 = 12 months). Three features stand out in @fig-acf-pacf-original:
+
+1.  **Non-stationarity (slow ACF decay).** The ACF decays very slowly — the canonical signature of a non-stationary mean.
+2.  **AR(1)-type partial autocorrelation.** The PACF exhibits a dominant spike at lag 1 followed by an abrupt cutoff.
+3.  **Seasonal spikes.** Elevated ACF and PACF values at lags 12, 24, and 36 (highlighted in red) confirm a significant seasonal periodic component at $s = 12$ months.
+
+```{r}
+#| label: tbl-adf-original
+#| tbl-cap: "Augmented Dickey-Fuller test: original series."
+
+adf_orig <- run_adf(WoolTS, "Augmented Dickey-Fuller test: original series.")
+adf_orig$table
+```
+
+The **ADF test** (@tbl-adf-original) returns a Dickey-Fuller statistic of `r round(adf_orig$result$statistic, 4)` with $p = `r format(adf_orig$result$p.value, scientific = TRUE, digits = 3)`$. Because this p-value exceeds 0.05, we **fail to reject the null hypothesis of a unit root**, statistically confirming the series is non-stationary and that **differencing will be required**.
+
+------------------------------------------------------------------------
+
+# Data Transformation
+
+Before applying differencing to remove the trend, we first address the non-constant variance. The Box-Cox transformation is applied for this purpose.
+
+## Optimal $\lambda$ Selection
+
+```{r}
+#| label: fig-boxcox-lambda
+#| fig-cap: "Box-Cox log-likelihood profile for optimal lambda selection."
+#| fig-height: 4
+#| fig-width: 7
+
+BC           <- BoxCox.ar(y = WoolTS, lambda = seq(-2, 2, 0.01),
+                          method = "yule-walker")
+lambda_opt   <- BC$lambda[which.max(BC$loglike)]
+lambda_lower <- BC$ci[1]
+lambda_upper <- BC$ci[3]
+```
+
+```{r}
+#| label: tbl-boxcox-params
+#| tbl-cap: "Box-Cox parameter estimates for the wool trade series."
+
+BC_WoolTS <- (WoolTS^lambda_opt - 1) / lambda_opt
+
+knitr::kable(
+  data.frame(
+    Parameter = c("Optimal Lambda", "95% CI lower bound", "95% CI upper bound"),
+    Value     = round(c(lambda_opt, lambda_lower, lambda_upper), 4)),
+  align = "lc", row.names = FALSE, booktabs = TRUE)
+```
+
+@tbl-boxcox-params shows the optimal $\lambda$ = 0.34, with a 95% confidence interval of \[0.23, NA\]. The upper bound could not be reliably estimated, but the lower bound confirms that $\lambda = 1$ (no transformation) lies outside the interval. The estimated $\lambda = 0.34$ is closer to a cube-root transformation ($\lambda = 1/3$) than to the more common log ($\lambda = 0$) or square-root ($\lambda = 0.5$) transformations.
+
+------------------------------------------------------------------------
+
+## Transformed Series Diagnostics
+
+```{r}
+#| label: fig-ts-transformed
+#| fig-cap: "Box-Cox transformed series (λ = 0.34), 1971–2026."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_ts(BC_WoolTS,
+        main = "Box-Cox transformed series, 1971–2026.",
+        ylab = "BC-Transformed Value")
+```
+
+```{r}
+#| label: fig-normality-transformed
+#| fig-cap: "Q-Q plot (left) and histogram (right) of the Box-Cox transformed series."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_norm(BC_WoolTS,
+          qq_title   = "Q-Q plot: Box-Cox transformed.",
+          hist_title = "Histogram: Box-Cox transformed.",
+          xlab       = "BC-Transformed Value")
+```
+
+```{r}
+#| label: tbl-sw-transformed
+#| tbl-cap: "Shapiro-Wilk normality test: Box-Cox transformed series."
+
+sw_bc <- run_sw(BC_WoolTS, "Shapiro-Wilk normality test: Box-Cox transformed series.")
+sw_bc$table
+```
+
+The Shapiro-Wilk test yields W = 0.98 with p = 2.53e-07 (\< 0.05), leading to rejection of normality. Despite this, the transformation has improved the distributional characteristics. Although SARIMA modelling does not strictly require data normality, the Box-Cox transformation significantly improved the series' stationarity and variance characteristics. We therefore proceed with the transformed data for the remaining analysis.
+
+```{r}
+#| label: fig-acf-pacf-transformed
+#| fig-cap: "ACF (left) and PACF (right) of the Box-Cox transformed series."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_seasonal_acf_pacf(
+  BC_WoolTS,
+  acf_title  = "ACF: Box-Cox transformed.",
+  pacf_title = "PACF: Box-Cox transformed.")
+```
+
+After Box-Cox transformation, both the non-seasonal unit root (slow ACF decay) and the seasonal unit root (spikes at lags 1, 2, and 3 corresponding to 12, 24, and 36 months) **still remain**. The PACF shows a dominant spike at lag 1 followed by a **sharp cutoff**, suggesting an AR(1) structure is required after differencing.
+
+------------------------------------------------------------------------
+
+## Summary of Transformation Diagnostics
+
+```{r}
+#| label: tbl-transformation-comparison
+#| tbl-cap: "Comparison of normality and stationarity diagnostics before and after Box-Cox transformation."
+
+comparison_df <- data.frame(
+  "Diagnostic" = c("Shapiro-Wilk W statistic",
+                   "Shapiro-Wilk p-value",
+                   "ADF Dickey-Fuller statistic",
+                   "ADF p-value"),
+  "Original series" = c(
+    round(sw_orig$result$statistic, 4),
+    format(sw_orig$result$p.value,  scientific = TRUE, digits = 3),
+    round(as.numeric(adf_orig$result$statistic), 4),
+    format(adf_orig$result$p.value, scientific = TRUE, digits = 3)),
+  "Box-Cox transformed" = c(
+    round(sw_bc$result$statistic, 4),
+    format(sw_bc$result$p.value,  scientific = TRUE, digits = 3),
+    round(as.numeric({adf_bc <- adf.test(BC_WoolTS); adf_bc}$statistic), 4),
+    format(adf_bc$p.value,        scientific = TRUE, digits = 3)),
+  check.names = FALSE)
+
+knitr::kable(comparison_df, align = "lcc", row.names = FALSE, booktabs = TRUE)
+```
+
+@tbl-transformation-comparison summarises the effect of the Box-Cox transformation. The Shapiro-Wilk statistic improved from 0.9682 (original) to 0.9817 (transformed). The ADF test p-value decreased from 0.0645 (original) to 0.0483 (transformed), crossing the 0.05 significance threshold. This suggests that the Box-Cox transformation has helped stabilize both the variance and, to some extent, the mean. However, the ACF still exhibits slow decay, indicating that differencing remains necessary.
+
+------------------------------------------------------------------------
+
+# Model Specification: Residual Approach
+
+Rather than searching the full SARIMA$(p,d,q)(P,D,Q)_{12}$ parameter space simultaneously, we adopt a **sequential residual approach**, building the model structure one component at a time and validating each stage through residual diagnostics. The approach proceeds in the following steps:
+
+1.  **Seasonal Differencing** $(D)$: Apply seasonal difference and inspect residual ACF and PACF to determine whether the seasonal unit root has been removed and to identify the required seasonal ARMA order $(P, Q)$.
+2.  **Seasonal ARMA Specification** $(P, Q)$: Augment with seasonal ARMA terms and inspect updated residuals. Apply formal stationarity tests (ADF, PP, KPSS) to assess whether non-seasonal differencing is required.
+3.  **Non-Seasonal Differencing and ARMA Diagnostics** $(d)$: Apply non-seasonal differencing and inspect residual ACF and PACF to confirm the mean has been stabilised.
+4.  **Full Model Autocorrelation Check**: Fit a trial model incorporating both non-seasonal AR and MA terms to verify that the complete SARIMA$(p,d,q)(P,D,Q)_{12}$ framework is sufficient to reduce the residuals to white noise.
+5.  **Non-Seasonal ARMA Order Identification**: Apply three complementary identification tools (ACF/PACF, EACF, BIC subset selection) to enumerate candidate non-seasonal orders.
+
+------------------------------------------------------------------------
+
+## Step 1 — Seasonal Differencing: SARIMA$(0,0,0)(0,1,0)_{12}$
+
+```{r}
+#| label: fig-residuals-m1
+#| fig-cap: "Residuals after fitting Model 1: SARIMA(0,0,0)(0,1,0)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+m1_wool <- Arima(BC_WoolTS, order = c(0, 0, 0),
+                 seasonal = list(order = c(0, 1, 0), period = 12))
+res_m1  <- rstandard(m1_wool)
+
+plot(res_m1, type = "l", cex = 0.4, pch = 16, cex.main = 0.9,
+     xlab = "Year", ylab = "Standardised residuals",
+     main = "Residuals after fitting Model 1: SARIMA(0,0,0)(0,1,0)[12]")
+abline(h = c(0, 2, -2), col = c("grey50", "red", "red"), lty = c(2, 3, 3))
+legend("topright", legend = c("Residuals", "±2SD"),
+       col = c("black", "red"), lty = c(1, 3), cex = 0.7, bty = "n")
+```
+
+```{r}
+#| label: fig-acf-pacf-m1
+#| fig-cap: "ACF (left) and PACF (right) of residuals from Model 1: SARIMA(0,0,0)(0,1,0)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_seasonal_acf_pacf(
+  res_m1,
+  acf_title  = "ACF: Residuals, Model 1: SARIMA(0,0,0)(0,1,0)[12]",
+  pacf_title = "PACF: Residuals, Model 1: SARIMA(0,0,0)(0,1,0)[12]")
+```
+
+Applying one seasonal difference ($D = 1$) to the Box-Cox transformed series removes much of the seasonal oscillation, as evidenced by the roughly zero-centred path in @fig-residuals-m1. Even so, seasonal differencing alone is insufficient to fully eliminate the seasonal dependence, meaning seasonal ARMA terms are required to capture the remaining structure.
+
+Looking at the diagnostics, the ACF in @fig-acf-pacf-m1 shows **significant seasonal spikes at lags 12 and 24** remaining well above the significance bands, while the PACF shows **slowly decaying seasonal spikes**. Consequently, we choose seasonal moving average order $Q = 2$ and seasonal autoregressive order $P = 0$.
+
+------------------------------------------------------------------------
+
+## Step 2 — Seasonal ARMA Specification: SARIMA$(0,0,0)(0,1,2)_{12}$
+
+The seasonal ACF in @fig-acf-pacf-m1 showed **two significant spikes at seasonal lags 1 and 2** (corresponding to 12 and 24 months), which is the signature of a seasonal MA(2) process. The PACF showed slowly decaying seasonal lags, ruling out a seasonal AR component ($P = 0$). Accordingly, SMA(2) terms are added, fixing the seasonal structure at $(0,1,2)_{12}$ for all subsequent models. This give us: SARIMA$(0,0,0)(0,1,2)_{12}$.
+
+```{r}
+#| label: fig-residuals-m2
+#| fig-cap: "Residuals after fitting Model 2: SARIMA(0,0,0)(0,1,2)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+m2_wool <- Arima(BC_WoolTS, order = c(0, 0, 0),
+                 seasonal = list(order = c(0, 1, 2), period = 12))
+res_m2  <- rstandard(m2_wool)
+
+plot(res_m2, type = "l", cex = 0.4, pch = 16, cex.main = 0.9,
+     xlab = "Year", ylab = "Standardised residuals",
+     main = "Residuals after fitting Model 2: SARIMA(0,0,0)(0,1,2)[12]")
+abline(h = c(0, 2, -2), col = c("grey50", "red", "red"), lty = c(2, 3, 3))
+legend("topright", legend = c("Residuals", "±2SD"),
+       col = c("black", "red"), lty = c(1, 3), cex = 0.7, bty = "n")
+```
+
+After fitting Model 2, SARIMA$(0,0,0)(0,1,2)_{12}$, @fig-residuals-m2 shows residuals are better behaved. Nevertheless, the **footprint of historical shocks remains prominent**, with extreme excursions still reaching the ±3 standard deviation threshold. Outside these extreme period, most standardised residuals lie within the ±2 standard deviation bounds.
+
+```{r}
+#| label: fig-acf-pacf-m2
+#| fig-cap: "ACF (left) and PACF (right) of residuals from Model 2: SARIMA(0,0,0)(0,1,2)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_seasonal_acf_pacf(
+  res_m2,
+  acf_title  = "ACF: Residuals, Model 2: SARIMA(0,0,0)(0,1,2)[12]",
+  pacf_title = "PACF: Residuals, Model 2: SARIMA(0,0,0)(0,1,2)[12]")
+```
+
+The ACF in @fig-acf-pacf-m2 confirms the seasonal spikes at lags 12 and 24 now fall within the confidence bands — **the SMA(2) term has absorbed the remaining seasonal autocorrelation**. The seasonal component is therefore fixed at $(0,1,2)_{12}$ for all subsequent candidate models.
+
+However, the ordinary (non-seasonal) lags reveal **remaining short-term structure**: the ACF shows **slow decay** and the PACF shows a **dominant spike** at ordinary lag 1 followed by a cutoff, indicating non-seasonal autocorrelation is still present. This suggests that non-seasonal differencing $(d=1)$ is required to stabilize the mean. So we run formal stationarity tests (@tbl-stationarity-m2) to confirm this.
+
+```{r}
+#| label: tbl-stationarity-m2
+#| tbl-cap: "Formal stationarity tests for residuals of Model 2."
+
+adf_resm2 <- check_stationarity(
+  res_m2,
+  "Formal statistical verification of stationarity for residuals of Model 2."
+)
+adf_resm2$table
+```
+
+When running formal statistical tests to confirm the stationarity of the series, the result (@tbl-stationarity-m2) presents a classic contradiction. The ADF and PP tests reject the unit root hypothesis (indicating stationarity), while the KPSS test rejects the null of stationarity (indicating non-stationarity). Based on the persistent decay in the ACF plot, the sharp cutoff in the PACF, and the KPSS test confirming non-stationarity in the levels, a first-difference $d = 1$ conservatively, establishing the baseline structural framework as **SARIMA**$(p,1,q)(0,1,2)_{12}$.
+
+------------------------------------------------------------------------
+
+## Step 3 — Non-Seasonal Differencing & ARMA Diagnostics
+
+Based on the contradictory stationarity test results from Step 2 and the visual evidence of remaining non-seasonal autocorrelation, a non-seasonal difference ($d = 1$) is applied conservatively. This produces the baseline structural framework **SARIMA**$(0,1,0)(0,1,2)_{12}$, from which all **subsequent candidate models will be built**.
+
+```{r}
+#| label: fig-residuals-m3
+#| fig-cap: "Residuals after fitting Model 3: SARIMA(0,1,0)(0,1,2)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+m3_wool <- Arima(BC_WoolTS, order = c(0, 1, 0),
+                 seasonal = list(order = c(0, 1, 2), period = 12))
+res_m3  <- rstandard(m3_wool)
+
+plot(res_m3, type = "l", cex = 0.4, pch = 16, cex.main = 0.9,
+     xlab = "Year", ylab = "Standardised residuals",
+     main = "Residuals after fitting Model 3: SARIMA(0,1,0)(0,1,2)[12]")
+abline(h = c(0, 2, -2), col = c("grey50", "red", "red"), lty = c(2, 3, 3))
+legend("topright", legend = c("Residuals", "±2SD"),
+       col = c("black", "red"), lty = c(1, 3), cex = 0.7, bty = "n")
+```
+
+@fig-residuals-m3 shows the standardised residuals fluctuating randomly around zero with no remaining trend or seasonal pattern, confirming that ($d = 1$) has successfully stabilised the mean. Most residuals lie within the ±2 bounds. A few extreme spikes exceeding ±3 are visible during known historical shock periods, specifically the volatile macro environments of the early 1980s and the 2020–2022 global disruptions. Outside these isolated episodes, variance clustering is negligible, pointing to a stable conditional variance.
+
+```{r}
+#| label: fig-acf-pacf-m3
+#| fig-cap: "ACF (left) and PACF (right) of residuals from Model 3: SARIMA(0,1,0)(0,1,2)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_seasonal_acf_pacf(
+  res_m3,
+  acf_title  = "ACF: Residuals, Model 3: SARIMA(0,1,0)(0,1,2)[12]",
+  pacf_title = "PACF: Residuals, Model 3: SARIMA(0,1,0)(0,1,2)[12]")
+```
+
+Figure @fig-acf-pacf-m3 presents the ACF and PACF of the residuals for Model 3 SARIMA$(0,1,0)(0,1,2)_{12}$. The dominant seasonal spikes have been removed, **confirming that the seasonal structure** $(0,1,2)_{12}$ and the non-seasonal differencing ($d = 1$) have together absorbed seasonal and trend-related autocorrelation.
+
+However, a detailed inspection of the ordinary (non-seasonal) lags reveals remaining short-term dependence, **confirming that p and q are not yet specified**. Both the ACF and PACF in @fig-acf-pacf-m3 show approximately 3 significant spikes at ordinary lags, after which correlations fall within the confidence bands, giving a preliminary indication that both $p$ and $q$ are in the range of 1–3.
+
+Consequently, the Model 3 residuals, with seasonal structure, seasonal autocorrelation ($P = 0, D = 1, Q = 2$) , and non-seasonal trend ($d = 1$) all removed, now contain only the **short-term non-seasonal ARMA(p,q) dependence**. These residuals are therefore the correct and necessary input for the formal order identification tools for Step 5.
+
+## Step 4 — Full Model Autocorrelation Check
+
+To validate that the SARIMA$(p,1,q)(0,1,2)_{12}$ framework is sufficient to fully capture all remaining autocorrelation, Model 4, SARIMA$(2,1,2)(0,1,2)_{12}$, is fitted as a **diagnostic trial, using (**$p = 2$) and ($q = 2$) to directly address the approximate 3 significant spikes observed in both the ACF and PACF of the Model 3 residuals (@fig-acf-pacf-m3).
+
+```{r}
+#| label: fig-residuals-m4
+#| fig-cap: "Residuals after fitting Model 4: SARIMA(2,1,2)(0,1,2)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+m4_wool <- Arima(BC_WoolTS, order = c(2, 1, 2),
+                 seasonal = list(order = c(0, 1, 2), period = 12))
+res_m4  <- rstandard(m4_wool)
+
+plot(res_m4, type = "l", cex = 0.4, pch = 16, cex.main = 0.9,
+     xlab = "Year", ylab = "Standardised residuals",
+     main = "Residuals after fitting Model 4: SARIMA(2,1,2)(0,1,2)[12]")
+abline(h = c(0, 2, -2), col = c("grey50", "red", "red"), lty = c(2, 3, 3))
+legend("topright", legend = c("Residuals", "±2SD"),
+       col = c("black", "red"), lty = c(1, 3), cex = 0.7, bty = "n")
+```
+
+```{r}
+#| label: fig-acf-pacf-m4
+#| fig-cap: "ACF (left) and PACF (right) of residuals from Model 4: SARIMA(2,1,2)(0,1,2)[12]."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_seasonal_acf_pacf(
+  res_m4,
+  acf_title  = "ACF: Residuals, Model 4: SARIMA(2,1,2)(0,1,2)[12]",
+  pacf_title = "PACF: Residuals, Model 4: SARIMA(2,1,2)(0,1,2)[12]")
+```
+
+@fig-residuals-m4 shows the residuals fluctuating randomly around zero within the ±2 bounds. The absence of long-wave patterns or cyclical drift confirms that the non-seasonal ARIMA(2,1,2) parameters have successfully filtered out remaining short-term dependencies, leaving residuals that closely resemble white noise.
+
+@fig-acf-pacf-m4 confirms the absence of any systematic patterns or persistent autocorrelation at either ordinary or seasonal lags, **indicating that the residuals have been successfully reduced to white noise**. This validates that the SARIMA$(p,1,q)(0,1,2)_{12}$ framework is sufficient to fully capture the series structure.
+
+## Step 5 — Non-Seasonal ARMA Order Identification
+
+Following the elimination of all seasonal dynamics and non-seasonal trends, the Model 3 residuals contain only the isolated, pure non-seasonal ARMA(p,q) signal. To identify the optimal order for this remaining process, we deploy three complementary identification tools, beginning with the **visual diagnostics provided by the (Model 3) residual ACF and PACF plots in @fig-acf-pacf-m3**.
+
+### ACF & PACF of the Model 3 Residuals
+
+The ACF and PACF of the Model 3 residuals, already presented in @fig-acf-pacf-m3, provide the preliminary visual basis for identifying candidate non-seasonal orders. The ACF shows approximately 4 significant spikes at ordinary lags, **indicating** $q$ **in the range of 1–3**. The PACF shows approximately 3 significant spikes, indicating $p$ **in the range of 1–3**. This gives 9 ACF/PACF-derived candidate structures covering all combinations of $p \in \{1,2,3\}$ and $q \in \{1,2,3\}$.
+
+Combining these ranges gives 9 ACF/PACF-derived candidate structures:
+
+-   SARIMA$(1,1,1)(0,1,2)_{12}$
+-   SARIMA$(1,1,2)(0,1,2)_{12}$
+-   SARIMA$(1,1,3)(0,1,2)_{12}$
+-   SARIMA$(2,1,1)(0,1,2)_{12}$
+-   SARIMA$(2,1,2)(0,1,2)_{12}$
+-   SARIMA$(2,1,3)(0,1,2)_{12}$
+-   SARIMA$(3,1,1)(0,1,2)_{12}$
+-   SARIMA$(3,1,2)(0,1,2)_{12}$
+-   SARIMA$(3,1,3)(0,1,2)_{12}$
+
+### EACF Analysis of the Model 3 Residuals
+
+However, as established in Step 3, the presence of spikes in both plots simultaneously indicates a mixed ARMA process where exact orders cannot be determined by visual inspection alone. **EACF and BIC are required**.
+
+The EACF is applied to the residuals of Model 3 SARIMA$(0,1,0)(0,1,2)_{12}$. Because Model 3 has already filtered out the seasonal structure $(0,1,2)_{12}$ and non-seasonal trend $(d=1)$ have already been filtered, the remaining information in these **residuals belongs entirely to the short-term non-seasonal ARMA(p,q) process**, making them the correct input for order identification.
+
+```{r}
+#| label: eacf-m3
+
+eacf_res <- eacf(res_m3, ar.max = 7, ma.max = 13)
+```
+
+The EACF is read by locating the upper-left vertex of the triangle of 'o' values. The first stable triangle has its vertex at AR=0, MA=2, identifying **ARMA(0,2)** as the most parsimonious candidate. The 'o' pattern also holds at AR=0, MA=3; AR=1, MA=2; and AR=1, MA=3. These four EACF-derived candidates correspond to
+
+-   SARIMA$(0,1,2)(0,1,2)_{12}$
+-   SARIMA$(0,1,3)(0,1,2)_{12}$
+-   SARIMA$(1,1,2)(0,1,2)_{12}$
+-   SARIMA$(1,1,3)(0,1,2)_{12}$
+
+### BIC Subset-Selection Plot of the Model 3 Residuals
+
+To complement the EACF analysis, BIC subset-selection plots were generated to identify the most promising non-seasonal ARMA orders. These plots display BIC values for different combinations of AR(p) and MA(q) orders, with darker cells indicating lower(BIC) values. Figure 16 and 17 present the results for two different search ranges (nar = 10, nma = 10, and nar =5, nma = 5)
+
+```{r}
+#| label: fig-bic-wide
+#| fig-cap: "BIC subset-selection plot (AR max = 10, MA max = 10)."
+#| fig-height: 4
+#| fig-width: 7
+
+res_bic <- armasubsets(y = res_m3, nar = 10, nma = 10,
+                       y.name = "res", ar.method = "ols")
+plot(res_bic)
+```
+
+The BIC subset-selection plots are generated across two search ranges to assess stability of the results. The wider search selects high MA orders up to lag 8, which are theoretically implausible for this series and likely reflect overfitting across the larger search space. **These results are therefore not carried forward as candidates**.
+
+```{r}
+#| label: fig-bic-narrow
+#| fig-cap: "BIC subset-selection plot (AR max = 5, MA max = 5)."
+#| fig-height: 4
+#| fig-width: 7
+
+res_bic2 <- armasubsets(y = res_m3, nar = 5, nma = 5,
+                        y.name = "res", ar.method = "ols")
+plot(res_bic2)
+```
+
+The narrower search, on the other hand, produces more reliable and practically meaningful results. The best model includes AR lag 1 and MA lag 3, corresponding to ARMA(1,3) giving SARIMA$(1,1,3)(0,1,2)_{12}$ as the **primary BIC-derived candidate**. The second row includes AR lag 2 and MA lag 2 and 5, corresponding to ARMA(2,2) and ARMA(2,5). But ARMA(2,5) is not carried forward as a candidate. BIC-derived candidates are therefore:
+
+-   SARIMA$(1,1,3)(0,1,2)_{12}$
+-   SARIMA$(2,1,2)(0,1,2)_{12}$
+
+------------------------------------------------------------------------
+
+# Model Fitting
+
+Together, the three identification methods yield **11 candidate SARIMA models** for evaluation. All subsequent SARIMA models are fitted to the original `WoolTS` series with the optimal Box-Cox lambda (`r round(lambda_opt, 4)`) passed via the `lambda` argument to `Arima()`, which applies the Box-Cox transformation internally and back-transforms forecasts automatically onto the original scale.
+
+::: callout-important
+**Why models are fitted to the original series, not the transformed series?**
+
+In time-series modeling the model should be fitted to the **original series** while passing the transformation parameter (λ) internally, rather than fitting a model directly to a pre-transformed series. Otherwise, it will introduces one or two of these following errors:
+
+-   **Double Transformation:** Passing a pre-transformed series into a modeling function with the (λ) argument enabled causes the function to apply the Box-Cox power a second time. This results in a mathematically invalid, over-transformed input scale.
+
+<!-- -->
+
+-   **Double Differencing:** Any specified differencing operators (d,D) would then execute on this doubly-transformed data. Relative to the true data structure, this removes far more variation than intended, distorting the autocorrelation structure and biasing all subsequent parameter estimates.
+:::
+
+```{r}
+#| label: tbl-candidate-models
+#| tbl-cap: "Candidate SARIMA models carried forward for estimation."
+
+candidate_models <- data.frame(
+  Label = c("M012", "M013", "M111", "M112", "M113", "M211",
+            "M212", "M213", "M311", "M312", "M313"),
+  Specification = c(
+    "SARIMA$(0,1,2)(0,1,2)_{12}$",
+    "SARIMA$(0,1,3)(0,1,2)_{12}$",
+    "SARIMA$(1,1,1)(0,1,2)_{12}$",
+    "SARIMA$(1,1,2)(0,1,2)_{12}$",
+    "SARIMA$(1,1,3)(0,1,2)_{12}$",
+    "SARIMA$(2,1,1)(0,1,2)_{12}$",
+    "SARIMA$(2,1,2)(0,1,2)_{12}$",
+    "SARIMA$(2,1,3)(0,1,2)_{12}$",
+    "SARIMA$(3,1,1)(0,1,2)_{12}$",
+    "SARIMA$(3,1,2)(0,1,2)_{12}$",
+    "SARIMA$(3,1,3)(0,1,2)_{12}$"
+  ),
+  Methods = c(
+    "EACF",
+    "EACF",
+    "ACF/PACF",
+    "ACF/PACF, EACF",
+    "ACF/PACF, EACF, BIC",
+    "ACF/PACF",
+    "ACF/PACF, BIC",
+    "ACF/PACF",
+    "ACF/PACF",
+    "ACF/PACF",
+    "ACF/PACF"
+  )
+)
+
+kable(candidate_models,
+      align = c("l", "l", "l"),
+      escape = FALSE,
+      booktabs = TRUE) |>
+  kable_styling(latex_options = c("hold_position", "striped"))
+```
+
+```{r}
+#| label: fit-all-models
+
+# M012
+m012_css <- Arima(WoolTS, order = c(0,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m012_ml  <- Arima(WoolTS, order = c(0,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+
+# M013
+m013_css <- Arima(WoolTS, order = c(0,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m013_ml  <- Arima(WoolTS, order = c(0,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+
+# M111
+m111_css <- Arima(WoolTS, order = c(1,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m111_ml  <- Arima(WoolTS, order = c(1,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+
+# M112
+m112_css <- Arima(WoolTS, order = c(1,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m112_ml  <- Arima(WoolTS, order = c(1,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m112_cssml <- Arima(WoolTS, order = c(1,1,2),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+
+# M113
+m113_css <- Arima(WoolTS, order = c(1,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m113_ml  <- Arima(WoolTS, order = c(1,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m113_cssml <- Arima(WoolTS, order = c(1,1,3),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+
+# M211
+m211_css <- Arima(WoolTS, order = c(2,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m211_ml  <- Arima(WoolTS, order = c(2,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m211_cssml <- Arima(WoolTS, order = c(2,1,1),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+
+# M212
+m212_css <- Arima(WoolTS, order = c(2,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m212_ml  <- Arima(WoolTS, order = c(2,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m212_cssml <- Arima(WoolTS, order = c(2,1,2),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+
+# M213
+m213_css <- Arima(WoolTS, order = c(2,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m213_ml  <- Arima(WoolTS, order = c(2,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m213_cssml <- Arima(WoolTS, order = c(2,1,3),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+
+# M311
+m311_css <- Arima(WoolTS, order = c(3,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m311_ml  <- Arima(WoolTS, order = c(3,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m311_cssml <- Arima(WoolTS, order = c(3,1,1),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+
+# M312
+m312_css <- Arima(WoolTS, order = c(3,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m312_ml  <- Arima(WoolTS, order = c(3,1,2),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m312_cssml <- Arima(WoolTS, order = c(3,1,2),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+
+# M313
+m313_css <- Arima(WoolTS, order = c(3,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m313_ml  <- Arima(WoolTS, order = c(3,1,3),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+m313_cssml <- Arima(WoolTS, order = c(3,1,3),
+                    seasonal = list(order = c(0,1,2), period = 12),
+                    method = "CSS-ML", lambda = lambda_opt)
+```
+
+------------------------------------------------------------------------
+
+# Parameter Estimates and Residual Diagnostics
+
+To execute this diagnostic tracking systematically, parameter estimation is finalized using the most numerically stable method among Conditional Sum of Squares (CSS) and Maximum Likelihood (ML). Where ML optimization encounters numerical difficulty, a hybrid CSS-ML approach is reported as a robust alternative.
+
+Following convergence, coefficient profiles are evaluated against a strict adequacy rubric. A parameter is considered practically significant if and only if it satisfies two distinct criteria:
+
+1.  **Statistical Validity**: The asymptotic z-test yields a p-value below the 5% significance threshold ($α=0.05$; with significance codes: \*\*\* p\<0.001, \*\* p\<0.01, \* p\<0.05).
+
+2.  **Structural Independence**: The estimate does not introduce parameter near-cancellation or redundant root behavior with opposing terms in the model. Model configurations where one or more coefficients are insignificant at the 5% level are systematically noted and flagged for parsimonious simplification. Once a model's parameter structure is validated, its corresponding residual stream is advanced to the comprehensive diagnostic phase.
+
+Once a model’s parameter structure is validated, its corresponding residual stream is advanced to a comprehensive diagnostic phase to verify that the remaining error behaves as white noise. This residual analysis evaluates two core properties:
+
+1.  **Independence and Absence of Autocorrelation**: The residuals are first visually inspected using a **Time Series Plot to check for stationarity**, while an **Autocorrelation Function (ACF) plot checks for any remaining patterns and dependence**. To formally confirm that the **errors are independent and uncorrelated, the Ljung-Box Portmanteau Test** is applied.
+
+2.  **Normality of Errors**: The distribution of the residuals is evaluated qualitatively using a **Histogram and a Quantile-Quantile (Q-Q) plot to look for asymmetry or heavy tails and normality**. This visual assessment is formally backed by the **Shapiro-Wilk test to rigorously evaluate the null hypothesis of normality**.
+
+Models that successfully satisfy both parameter parsimony and these residual diagnostic criteria are deemed statistically adequate. These qualifying candidates are then evaluated using **information criteria (AIC and BIC) alongside in-sample accuracy metrics**. The optimal model that minimizes these criteria is selected as the final winner to generate the out-of-sample forecasts.
+
+The following subsections present the coefficient estimates and residual diagnostics for each candidate model.
+
+### M012: SARIMA$(0,1,2)(0,1,2)_{12}$ — CSS
+
+```{r}
+#| label: tbl-coef-m012-css
+#| tbl-cap: "Coefficients: M012 — SARIMA(0,1,2)(0,1,2)[12], CSS"
+
+make_coef_table(m012_css, "Coefficients: M012 — SARIMA(0,1,2)(0,1,2)[12], CSS")
+```
+
+The CSS estimation for the SARIMA$(0,1,2)(0,1,2)_{12}$ model demonstrates strong parameter significance across most of its non-seasonal and seasonal moving average components:
+
+-   *Non-Seasonal MA Terms*: Both ma1 (−0.3557, p\<0.001) and ma2 (−0.1263, p=0.0025) are statistically significant, establishing strong short-term dependency capture.
+
+-   *Seasonal MA Terms*: The first-order seasonal term sma1 is highly significant and structurally dominant (−0.7839, p\<0.001). However, the second-order seasonal term sma2 (−0.0116, p=0.7840) is completely insignificant, indicating potential over-parameterization in the seasonal moving average component.
+
+Except for sma2, the remaining parameters are robustly identified with small standard errors relative to their estimates, providing a generally well-behaved parameter solution.
+
+```{r}
+#| label: fig-resid-m012-css
+#| fig-cap: "Residual diagnostics: M012 — SARIMA(0,1,2)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m012_css <- residual.analysis(m012_css, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardized residuals fluctuate cleanly around zero with no apparent deterministic trend or remaining seasonal patterns. The 1980s boom-and-bust cycle caused by the collapse of the Reserve Price Scheme and the 2020–2022 COVID-19 shock period show larger negative excursions (reaching down to around −4), which is expected given the extreme macroeconomic volatility of that specific era. There is no evidence of systematic variance clustering outside of this period.
+
+-   *Histogram*: The distribution is roughly symmetric and well-centered near zero. It exhibits a slight left-skew with a longer left tail, which is entirely consistent with the occasional large negative outliers seen in the time series plot.
+
+-   *Q-Q Plot*: The bulk of the empirical distribution (spanning from roughly −2 to +3) tracks the theoretical normal reference line tightly. The primary normality concern is a distinct lower-tail deviation, where several data points pull away sharply below the −2 theoretical quantile mark.
+
+-   *ACF Plot*: The residual autocorrelation profile is very clean. Only a few non-seasonal spike marginally breaches the 5% confidence bands, which can be attributed to random variation rather than systematic misspecification. No seasonal lags (multiples of 12) show any significant spikes, confirming seasonal dependencies have been stripped out.
+
+-   *Ljung-Box Test*: The model displays a solid portmanteau test profile. P-values start exceptionally high (around 0.90 at lag 1) and remain comfortably above the 0.05 significance threshold through lag 20, before sharply declining and crossing the 0.05 threshold around lag 25 and remain below the threshold through lag 30. This sudden decline shows that the long-term white noise properties are compromised.
+
+-   *Shapiro-Wilk Test*: The test yields a p\<0.05. This formally rejects the null hypothesis of normality. However, matching this to the Q-Q plot confirms that this rejection is driven heavily by the isolated tail outliers rather than a structural failure of the model.
+
+### M012: SARIMA$(0,1,2)(0,1,2)_{12}$ — ML
+
+```{r}
+#| label: tbl-coef-m012-ml
+#| tbl-cap: "Coefficients: M012 — SARIMA(0,1,2)(0,1,2)[12], ML"
+
+make_coef_table(m012_ml, "Coefficients: M012 — SARIMA(0,1,2)(0,1,2)[12], ML")
+```
+
+The ML estimation for the SARIMA$(0,1,2)(0,1,2)_{12}$ model yields an almost identical structural solution to the CSS estimation, confirming exceptional numerical stability and consistency across both optimization methods:
+
+-   *Non-Seasonal MA Terms*: Both ma1 (−0.3595, p\<0.001) and ma2 (−0.1236, p=0.0030) remain highly significant with virtually unchanged coefficients and standard errors.
+
+-   *Seasonal MA Terms*: The seasonal structure mirrors the CSS profile exactly. The sma1 parameter remains highly significant and dominant (−0.7769, p\<0.001), while sma2 stays entirely insignificant (−0.0121, p=0.7748).
+
+The tight convergence between the CSS and ML estimates indicates a smooth, well-defined likelihood surface free of optimization anomalies. However, it also confirms that sma2 is structurally redundant across both methods, suggesting a more parsimonious SARIMA$(0,1,2)(0,1,1)_{12}$ model should be favored.
+
+```{r}
+#| label: fig-resid-m012-ml
+#| fig-cap: "Residual diagnostics: M012 — SARIMA(0,1,2)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m012_ml <- residual.analysis(m012_ml, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardized residuals fluctuate cleanly around zero with no apparent deterministic trend or remaining seasonal patterns. Two distinct historical shock periods were observed, exhibit larger negative excursions reaching down to around $−4$: first during the 1980s boom-and-bust cycle caused by the collapse of the Reserve Price Scheme, and later during the 2020–2022 COVID-19 macroeconomic shock. Given the extreme structural and economic volatility of both eras, these isolated outliers are entirely expected and do not indicate systematic variance clustering.
+
+-   *Histogram*: The distribution remains roughly symmetric and well-centered near zero with a slight left-skew and a longer left tail, which is entirely consistent with the occasional large negative outliers seen in the time series plot.
+
+-   *Q-Q Plot*: The bulk of the distribution (roughly −2 to +3) tracks the reference line closely. There is a clear lower-tail deviation, with several points pulling away from the line below theoretical quantile −2. This lower-tail departure is the primary normality concern.
+
+-   *ACF Plot*: The profile remains clean overall. A few spikes breach the confidence bands at a few non-seasonal lags, but these are scattered rather than systematic, and most lags lie within bounds. No obvious seasonal structure remains.
+
+-   *Ljung-Box Test*: The ML model displays a similar profile. P-values start exceptionally high (around 0.90 at lag 1) and remain comfortably above the 0.05 significance threshold through lag 20, before sharply declining and crossing the 0.05 threshold around lag 25 and remain below the threshold through lag 30. This sudden decline shows that the long-term white noise properties are compromised.
+
+-   *Shapiro-Wilk test*: The test yields a p\<0.05. This formally rejects the null hypothesis of normality. Cross-referencing this with the Q-Q plot confirms that this rejection remains driven heavily by the isolated historical tail outliers rather than a structural failure of the model.
+
+M012 (SARIMA$(0,1,2)(0,1,2)_{12}$) establishes itself as a viable early baseline benchmark, the first benchmark in the model comparison.
+
+::: callout-note
+**Parameter Estimates and Residual Diagnostics Framework**
+
+To identify the optimal forecasting framework, candidate models undergo a rigorous, multi-stage evaluation process consisting of parameter estimation validation, residual diagnostics, and benchmark comparison.
+
+1.  **Parameters** for **each model are evaluated** using both Conditional Least Squares (CLS/CSS) and Maximum Likelihood (ML) estimation methods to ensure stability and convergence:
+
+    -   Estimation Alignment: If CSS and ML estimates yield consistent parameters, the model is deemed stable.
+
+    -   Discrepancy and Non-Convergence: In cases where CSS and ML estimation methods disagree, or if numerical non-convergence occurs, a combined CSS-ML approach is utilized as a third definitive test to resolve parameter instability and ensure optimization surface convergence.
+
+2.  **Residual Diagnostic Checking.** Every candidate model is subjected to thorough residual diagnostics to verify that the underlying statistical assumptions hold. This profile includes:
+
+    -   Autocorrelation Analysis: Examining Residual ACF and PACF plots alongside formal Ljung-Box test results to ensure the residuals behave as white noise and contain no remaining serial correlation.
+
+    -   Distributional Properties: Assessing residual histogram plots, QQ-plots, and Shapiro-Wilk tests to evaluate normality and check for variance stability.
+
+3.  Once the robust, validated candidate pool is established, the entire set of models is cross-examined against established baseline benchmarks.
+:::
+
+------------------------------------------------------------------------
+
+### M013: SARIMA$(0,1,3)(0,1,2)_{12}$ — CSS
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m013-css
+#| tbl-cap: "Coefficients: M013 — SARIMA(0,1,3)(0,1,2)[12], CSS"
+
+make_coef_table(m013_css, "Coefficients: M013 — SARIMA(0,1,3)(0,1,2)[12], CSS")
+```
+
+```{r}
+#| label: fig-resid-m013-css
+#| fig-cap: "Residual diagnostics: M013 — SARIMA(0,1,3)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m013_css <- residual.analysis(m013_css, std = TRUE, model_class = "ARIMA")
+```
+
+### M013: SARIMA$(0,1,3)(0,1,2)_{12}$ — ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m013-ml
+#| tbl-cap: "Coefficients: M013 — SARIMA(0,1,3)(0,1,2)[12], ML"
+
+make_coef_table(m013_ml, "Coefficients: M013 — SARIMA(0,1,3)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m013-ml
+#| fig-cap: "Residual diagnostics: M013 — SARIMA(0,1,3)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m013_ml <- residual.analysis(m013_ml, std = TRUE, model_class = "ARIMA")
+```
+
+------------------------------------------------------------------------
+
+### M111: SARIMA$(1,1,1)(0,1,2)_{12}$ — CSS
+
+```{r}
+#| label: tbl-coef-m111-css
+#| tbl-cap: "Coefficients: M111 — SARIMA(1,1,1)(0,1,2)[12], CSS"
+
+make_coef_table(m111_css, "Coefficients: M111 — SARIMA(1,1,1)(0,1,2)[12], CSS")
+```
+
+The CSS estimation for the SARIMA$(1,1,1)(0,1,2)_{12}$ model demonstrates strong statistical significance across most of its components, transitioning from a pure MA specification (M012/M013) to a mixed ARMA structure:
+
+-   *Non-Seasonal AR/MA Terms*: Both the autoregressive term ar1 (0.2398, p=0.0043) and the moving average term ma1 (−0.6061, p\<0.001) are highly significant. This confirms that introducing a mixed structure robustly captures short-term residual dependencies.
+
+-   *Seasonal MA Terms*: The seasonal moving average structure mirrors the over-parameterization pattern seen in previous iterations. The first-order seasonal term sma1 remains highly significant and structurally dominant (−0.7756, p\<0.001), while the second-order term sma2 (−0.0152, p=0.7180) remains completely insignificant.
+
+Except for the redundant sma2 term, the remaining parameters are cleanly identified with tight standard errors relative to their estimates, indicating a stable parameter solution.
+
+```{r}
+#| label: fig-resid-m111-css
+#| fig-cap: "Residual diagnostics: M111 — SARIMA(1,1,1)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m111_css <- residual.analysis(m111_css, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardized residuals fluctuate cleanly around zero with no apparent deterministic trend or remaining seasonal patterns. The series highlights two distinct shock eras exhibiting larger negative excursions reaching down near −4. Outside of these volatile periods, there is no evidence of systematic variance clustering.
+
+-   *Histogram*: The distribution is roughly symmetric and well-centered near zero. It exhibits a slight left-skew with a longer left tail, which is entirely consistent with the occasional large negative historical shocks visible in the time series plot.
+
+-   *Q-Q Plot*: The majority of the empirical distribution (spanning from roughly −2 to +3) tracks the theoretical normal reference line tightly. The primary normality concern remains the clear lower-tail deviation, where several data points pull away sharply below the −2 theoretical quantile mark due to the 1980s and 2020s historical outliers.
+
+-   *ACF Plot*: Almost identical to CSS M012/M013. The residual autocorrelation profile remains clean overall, with a few prominent, statistically significant spikes observed breaching the 5% confidence bands.
+
+-   *Ljung-Box Test*: P-values start exceptionally high (above 0.85) and remain above the 0.05 significance threshold through lag 20. However, they plunge sharply after lag 20, crossing below the 0.05 threshold around lags 25–26 and remaining significant through lag 30, showing that long-term white noise properties are compromised.
+
+-   *Shapiro-Wilk Test*: The test yields a p\<0.05. This formally rejects the null hypothesis of normality.
+
+### M111: SARIMA$(1,1,1)(0,1,2)_{12}$ — ML
+
+```{r}
+#| label: tbl-coef-m111-ml
+#| tbl-cap: "Coefficients: M111 — SARIMA(1,1,1)(0,1,2)[12], ML"
+
+make_coef_table(m111_ml, "Coefficients: M111 — SARIMA(1,1,1)(0,1,2)[12], ML")
+```
+
+The ML estimation for the SARIMA$(1,1,1)(0,1,2)_{12}$ model yields an exceptionally stable and consistent solution compared to its CSS counterpart, confirming strong numerical convergence:
+
+-   *Non-Seasonal AR/MA Terms*: Both ar1 (0.2555, p=0.0036) and ma1 (−0.6237, p\<0.001) remain highly significant. Their estimates and tight standard errors are nearly identical to the CSS results, verifying a robust capture of short-term residual dependencies.
+
+-   *Seasonal MA Terms*: The structural over-parameterization issue persists precisely as observed under CSS. The first-order seasonal term sma1 remains highly significant and dominant (−0.7758, p\<0.001), while the second-order seasonal term sma2 (−0.0137, p=0.7443) remains entirely insignificant.
+
+The negligible variance between the CSS and ML parameter estimates points to a smooth, well-defined likelihood surface, though it confirms that sma2 is redundant and should be omitted for a more parsimonious model design.
+
+```{r}
+#| label: fig-resid-m111-ml
+#| fig-cap: "Residual diagnostics: M111 — SARIMA(1,1,1)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m111_ml <- residual.analysis(m111_ml, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardized residuals fluctuate cleanly around zero with no apparent deterministic trend or remaining seasonal patterns. The full sample timeline captures the same distinct historical shock periods exhibiting larger negative excursions reaching down near −4, first during the 1980s boom-and-bust cycle caused by the collapse of the Reserve Price Scheme, and later during the 2020–2022 COVID-19 macroeconomic crisis. Outside of these periods, there is no evidence of systematic variance clustering.
+
+-   *Histogram*: The distribution remains roughly symmetric, well-centered near zero, and exhibits a slight left-skew with a longer left tail that reflects the extreme historical outliers.
+
+-   *Q-Q Plot*: The majority of the empirical distribution (spanning from roughly −2 to +3) tightly follows the theoretical normal reference line. The primary normality concern remains the clear lower-tail deviation below the −2 theoretical quantile mark caused by the historical shocks.
+
+-   *ACF Plot*: The residual autocorrelation profile continues to show a few prominent, statistically significant spikes breach the 5% confidence bands. All seasonal lags remain perfectly clean.
+
+-   *Ljung-Box Test*: While p-values start exceptionally high (above 0.85) and remain above the 0.05 threshold through lag 19, they plunge sharply immediately after. The p-values cross below the 0.05 significance line at lag 24 and remain below the threshold through lag 30, showing that long-term white noise properties are compromised.
+
+-   *Shapiro-Wilk Test*: The test yields a p\<0.05. This formally and strongly rejets the null hypothesis of normality. Cross-referencing this with the Q-Q plot confirms that this rejection remains driven by the isolated historical tail outliers rather than a structural failure of the model framework.
+
+While M012 establishes itself as a viable early baseline benchmark, M111 emerges as the more structurally efficient model that approximately satisfies residual independence at the diagnostically important short-to-medium lags. **Consequently, M111 supersedes M012 to become a refined benchmark.**
+
+------------------------------------------------------------------------
+
+### M112: SARIMA$(1,1,2)(0,1,2)_{12}$ — CSS
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m112-css
+#| tbl-cap: "Coefficients: M112 — SARIMA(1,1,2)(0,1,2)[12], CSS"
+
+make_coef_table(m112_css, "Coefficients: M112 — SARIMA(1,1,2)(0,1,2)[12], CSS")
+```
+
+```{r}
+#| label: fig-resid-m112-css
+#| fig-cap: "Residual diagnostics: M112 — SARIMA(1,1,2)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m112_css <- residual.analysis(m112_css, std = TRUE, model_class = "ARIMA")
+```
+
+### M112: SARIMA$(1,1,2)(0,1,2)_{12}$ — ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m112-ml
+#| tbl-cap: "Coefficients: M112 — SARIMA(1,1,2)(0,1,2)[12], ML"
+
+make_coef_table(m112_ml, "Coefficients: M112 — SARIMA(1,1,2)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m112-ml
+#| fig-cap: "Residual diagnostics: M112 — SARIMA(1,1,2)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m112_ml <- residual.analysis(m112_ml, std = TRUE, model_class = "ARIMA")
+```
+
+### M112: SARIMA$(1,1,2)(0,1,2)_{12}$ — CSS-ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m112-cssml
+#| tbl-cap: "Coefficients: M112 — SARIMA(1,1,2)(0,1,2)[12], CSS-ML"
+
+make_coef_table(m112_cssml, "Coefficients: M112 — SARIMA(1,1,2)(0,1,2)[12], CSS-ML")
+```
+
+```{r}
+#| label: fig-resid-m112-cssml
+#| fig-cap: "Residual diagnostics: M112 — SARIMA(1,1,2)(0,1,2)[12], CSS-ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m112_cssml <- residual.analysis(m112_cssml, std = TRUE, model_class = "ARIMA")
+```
+
+------------------------------------------------------------------------
+
+### M113: SARIMA$(1,1,3)(0,1,2)_{12}$ — CSS
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m113-css
+#| tbl-cap: "Coefficients: M113 — SARIMA(1,1,3)(0,1,2)[12], CSS"
+
+make_coef_table(m113_css, "Coefficients: M113 — SARIMA(1,1,3)(0,1,2)[12], CSS")
+```
+
+```{r}
+#| label: fig-resid-m113-css
+#| fig-cap: "Residual diagnostics: M113 — SARIMA(1,1,3)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m113_css <- residual.analysis(m113_css, std = TRUE, model_class = "ARIMA")
+```
+
+### M113: SARIMA$(1,1,3)(0,1,2)_{12}$ — ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m113-ml
+#| tbl-cap: "Coefficients: M113 — SARIMA(1,1,3)(0,1,2)[12], ML"
+
+make_coef_table(m113_ml, "Coefficients: M113 — SARIMA(1,1,3)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m113-ml
+#| fig-cap: "Residual diagnostics: M113 — SARIMA(1,1,3)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m113_ml <- residual.analysis(m113_ml, std = TRUE, model_class = "ARIMA")
+```
+
+### M113: SARIMA$(1,1,3)(0,1,2)_{12}$ — CSS-ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m113-cssml
+#| tbl-cap: "Coefficients: M113 — SARIMA(1,1,3)(0,1,2)[12], CSS-ML"
+
+make_coef_table(m113_cssml, "Coefficients: M113 — SARIMA(1,1,3)(0,1,2)[12], CSS-ML")
+```
+
+```{r}
+#| label: fig-resid-m113-cssml
+#| fig-cap: "Residual diagnostics: M113 — SARIMA(1,1,3)(0,1,2)[12], CSS-ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m113_cssml <- residual.analysis(m113_cssml, std = TRUE, model_class = "ARIMA")
+```
+
+------------------------------------------------------------------------
+
+### M211: SARIMA$(2,1,1)(0,1,2)_{12}$ — CSS
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m211-css
+#| tbl-cap: "Coefficients: M211 — SARIMA(2,1,1)(0,1,2)[12], CSS"
+
+make_coef_table(m211_css, "Coefficients: M211 — SARIMA(2,1,1)(0,1,2)[12], CSS")
+```
+
+```{r}
+#| label: fig-resid-m211-css
+#| fig-cap: "Residual diagnostics: M211 — SARIMA(2,1,1)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m211_css <- residual.analysis(m211_css, std = TRUE, model_class = "ARIMA")
+```
+
+### M211: SARIMA$(2,1,1)(0,1,2)_{12}$ — ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m211-ml
+#| tbl-cap: "Coefficients: M211 — SARIMA(2,1,1)(0,1,2)[12], ML"
+
+make_coef_table(m211_ml, "Coefficients: M211 — SARIMA(2,1,1)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m211-ml
+#| fig-cap: "Residual diagnostics: M211 — SARIMA(2,1,1)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m211_ml <- residual.analysis(m211_ml, std = TRUE, model_class = "ARIMA")
+```
+
+------------------------------------------------------------------------
+
+### M212: SARIMA$(2,1,2)(0,1,2)_{12}$ — CSS
+
+```{r}
+#| label: tbl-coef-m212-css
+#| tbl-cap: "Coefficients: M212 — SARIMA(2,1,2)(0,1,2)[12], CSS"
+
+make_coef_table(m212_css, "Coefficients: M212 — SARIMA(2,1,2)(0,1,2)[12], CSS")
+```
+
+-   *Non- Seasonal AR/MA Terms*: The first order AR term AR1 is highly efficient, which indicates a strong autocorrelation at lag 1. The second order AR2 is **not statistically significant** (0.1423, p = 0.0801), exceeding the 0.05 threshold. This shows that the AR(2) term may be redundant. Both MA terms are highly significant where ma1 (0.4110, p\<0.001) and ma2 (-0.5391, p \<0.001). Which indicates that the MA(2) structure is well supported by the series.
+
+-   *Seasonal MA Terms*: The first-order seasonal MA term SMA1 is highly significant (−0.7582, p \< 0.001), this confirm its dominant role in capturing seasonal dependence. The second-order seasonal moving average term sma2 is not statistically significant (−0.0262, p = 0.5364), remaining redundant and contributing no meaningful explanatory power.
+
+Most coefficient are statistically significant, with the exception of sma2 (p=0.5364). The ar2 coefficient is borderline (p=0.0801). Despite these marginal insignificances, the model is retained for further evaluation and residuals diagnostics including ACF, Ljung Box test, and normality test will determine whether this model is adequate for forecasting.
+
+```{r}
+#| label: fig-resid-m212-css
+#| fig-cap: "Residual diagnostics: M212 — SARIMA(2,1,2)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m212_css <- residual.analysis(m212_css, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardised residuals fluctuate cleanly around zero with no obvious deterministic trend or remaining seasonal patterns. A few extreme values (exceeding ±3) are visible during historical shock periods (1980s boom and 2020–2022 crisis), which is expected given the volatile nature of the series.
+
+-   *Histogram*: The distribution is roughly symmetric and well-centered near zero, with a slight left skew and a longer left tail attributable to the isolated historical macro shocks.
+
+-   *Q-Q Plot*: The majority of the empirical distribution closely follows the theoretical normal reference line between the −2 and +3 quantiles. The primary deviation remains confined to the lower tail below the −2 theoretical quantile mark, driven directly by the historical outliers. This deviation is not a structural model failure.
+
+-   *ACF Plot*: The residual autocorrelation profile shows most bars within the 95% confidence bounds, some lags fall slightly outside, indicating minor remaining autocorrelation.
+
+-   *Ljung-Box Test*: The test returns a sequence of p-values (plotted as black dots) that comfortably exceed the significance threshold at shorter lag lengths before trending downward as the lag order increases. Near lag 25 and beyond, where the plotted points converge upon or cross beneath the 5% significance boundary ($α=0.05$).
+
+-   *Shapiro-Wilk Test*: The test yields W = 0.9789 with p \< 0.001, formally rejecting the null hypothesis of residual normality. Cross-referencing this to the Q-Q plot confirms that this rejection is entirely an artifact of the severe historical shocks rather than a structural failure of the model framework.
+
+### M212: SARIMA$(2,1,2)(0,1,2)_{12}$ — ML
+
+```{r}
+#| label: tbl-coef-m212-ml
+#| tbl-cap: "Coefficients: M212 — SARIMA(2,1,2)(0,1,2)[12], ML"
+
+make_coef_table(m212_ml, "Coefficients: M212 — SARIMA(2,1,2)(0,1,2)[12], ML")
+```
+
+The ML estimation for SARIMA(2,1,2)(0,1,2)\[12\] shows a simliar pattern to the CSS result with some improvements.
+
+-   *Non-Seasonal AR/MA Terms*: The first-order AR term AR1 is highly significant () whereas the second-order autoregressive term ar2 (0.1777, p = 0.0557) is borderline significant, slightly improving from the CSS estimate (p = 0.0801). While technically above the conventional 5% threshold, its proximity suggests it may still contribute meaningfully. With this, both MA terms are highly significant: ma1 (0.3707, p \< 0.001) and ma2 (−0.5687, p \< 0.001), confirming that the MA(2) structure is well-supported.
+
+-   *Seasonal MA Terms*: The first-order seasonal moving average term sma1 is highly significant (−0.7606, p \< 0.001), confirming its essential role in capturing seasonal dependence. The second-order seasonal moving average term sma2 (−0.0229, p = 0.5883) remains statistically insignificant, consistent across both CSS and ML estimations.
+
+The ML estimation strengthens the case for AR2 relative to CSS, while sma2 remains insignificant, the core non-seasonal structure (ar1, ma1, ma2) and sesaonal structure (sma1) are highly significant. On Balance, **M212 edges ahead of M111 sufficiently to supersede it as the new benchmark,** but the margin is modest and **M111 remains a credible parsimonious alternative.**
+
+```{r}
+#| label: fig-resid-m212-ml
+#| fig-cap: "Residual diagnostics: M212 — SARIMA(2,1,2)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m212_ml <- residual.analysis(m212_ml, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardised residuals fluctuate cleanly around zero with no obvious deterministic trend or remaining seasonal patterns. A few extreme values (exceeding ±3) are visible during historical shock periods (1980s boom and 2020–2022 crisis), which is expected given the volatile nature of the series. Variance clustering is minimal outside these episodes.
+
+-   *Histogram*: The distribution is roughly symmetric and well-centered near zero, with a slight left skew and a longer left tail attributable to the isolated historical macro shocks.
+
+-   *Q-Q Plot*: The majority of the empirical distribution closely follows the theoretical normal reference line between the −2 and +3 quantiles. The primary deviation remains confined to the lower tail below the −2 theoretical quantile mark, driven directly by the historical outliers. This deviation is not a structural model failure.
+
+-   *ACF Plot*: The ACF shows that most bars lie within the 95% confidence bounds. However, some lags fall slightly outside, indicating minor remaining autocorrelation.
+
+-   *Ljung-Box Test*: The p-values comfortably clear the alpha baseline at initial lags before entering a steady downward trajectory. This steady decline culminates past lag 26, where the plotted points converge upon or cross beneath the 5% significance boundary ($α=0.05$). This is attributed to the structural break in 1991 rather than model misspecification.
+
+-   *Shapiro-Wilk Test*: The test yields W = 0.9798 with p \< 0.001, rejecting normality. This rejection is driven by the historical shocks rather than a structural model failure.
+
+Relative to the previous benchmark M111 (SARIMA$(1,1,1)(0,1,2)_{12}$), M212 (SARIMA$(2,1,2)(0,1,2)_{12}$) captures additional short-term dynamics through its second-order AR and MA terms. The borderline significance of the ar2 coefficient (p = 0.0557) is acceptable given the overall improvement in fit and parsimony trade-off. **On balance, M212 edges ahead of M111 to take over as the new benchmark, though the margin is modest and M111 remains a credible parsimonious alternative for sensitivity analysis**.
+
+------------------------------------------------------------------------
+
+### M213: SARIMA$(2,1,3)(0,1,2)_{12}$ — CSS
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m213-css
+#| tbl-cap: "Coefficients: M213 — SARIMA(2,1,3)(0,1,2)[12], CSS"
+
+make_coef_table(m213_css, "Coefficients: M213 — SARIMA(2,1,3)(0,1,2)[12], CSS")
+```
+
+```{r}
+#| label: fig-resid-m213-css
+#| fig-cap: "Residual diagnostics: M213 — SARIMA(2,1,3)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m213_css <- residual.analysis(m213_css, std = TRUE, model_class = "ARIMA")
+```
+
+### M213: SARIMA$(2,1,3)(0,1,2)_{12}$ — ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m213-ml
+#| tbl-cap: "Coefficients: M213 — SARIMA(2,1,3)(0,1,2)[12], ML"
+
+make_coef_table(m213_ml, "Coefficients: M213 — SARIMA(2,1,3)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m213-ml
+#| fig-cap: "Residual diagnostics: M213 — SARIMA(2,1,3)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m213_ml <- residual.analysis(m213_ml, std = TRUE, model_class = "ARIMA")
+```
+
+### M213: SARIMA$(2,1,3)(0,1,2)_{12}$ — CSS-ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m213-cssml
+#| tbl-cap: "Coefficients: M213 — SARIMA(2,1,3)(0,1,2)[12], CSS-ML"
+
+make_coef_table(m213_cssml, "Coefficients: M213 — SARIMA(2,1,3)(0,1,2)[12], CSS-ML")
+```
+
+```{r}
+#| label: fig-resid-m213-cssml
+#| fig-cap: "Residual diagnostics: M213 — SARIMA(2,1,3)(0,1,2)[12], CSS-ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m213_cssml <- residual.analysis(m213_cssml, std = TRUE, model_class = "ARIMA")
+```
+
+------------------------------------------------------------------------
+
+### M311: SARIMA$(3,1,1)(0,1,2)_{12}$ — CSS
+
+```{r}
+#| label: tbl-coef-m311-css
+#| tbl-cap: "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], CSS"
+
+make_coef_table(m311_css, "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], CSS")
+```
+
+-   *Non-Seasonal AR/MA Terms*: The non-seasonal autoregressive structure is highly insignificant across all specified orders under CSS estimation. The first-order AR term ar1 (0.2137, p=0.1637), second-order AR term ar2 (−0.0431, p=0.5100), and third-order AR term ar3 (0.0354, p=0.4960) all fail to reach statistical significance, indicating that the expanded AR(3) framework adds no meaningful explanatory power. Conversely, the single moving average term ma1 is highly significant (−0.5711, p\<0.001), confirming that the short-term non-seasonal dynamics are predominantly moving-average driven.
+
+-   *Seasonal MA Terms*: The first-order seasonal moving average term sma1 is highly significant (−0.7737, p\<0.001), verifying its essential and stable role in capturing seasonal dependence. The second-order seasonal moving average term sma2 (−0.0181, p=0.6662) remains statistically insignificant, conforming to the structural patterns observed across all previously tested candidate models.
+
+```{r}
+#| label: fig-resid-m311-css
+#| fig-cap: "Residual diagnostics: M311 — SARIMA(3,1,1)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m311_css <- residual.analysis(m311_css, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardised residuals fluctuate cleanly around zero, indicating a stable mean with no obvious deterministic trend or uncaptured seasonal patterns remaining. A few extreme spikes exceeding ±3 are visible during known historical shock periods. Outside these specific intervals, variance clustering is minimal, suggesting a stable conditional variance.
+
+-   *Histogram*: The empirical distribution of the residuals is roughly symmetric and well-centered near zero. However, it exhibits a distinct left skewness and a longer left tail, which is directly attributable to severe, isolated historical macro shocks.
+
+-   *Q-Q Plot*: The majority of the empirical distribution closely tracks the theoretical normal reference line between the −2 and +3 quantiles. The primary deviation is strictly confined to the lower tail below the −2 theoretical quantile mark. This sharp downward departure confirms a heavy left tail driven by historical outliers.
+
+-   *ACF Plot*: The ACF shows that most bars lie safely within the 95% confidence bounds. However, a few specific bars marginally puncture the blue dashed threshold line, indicating that minor residual autocorrelation remains uncaptured despite the structural changes in the non-seasonal component.
+
+-   *Ljung-Box Test*: The test yields p-values (represented by the black dots) that start well above the alpha threshold for early lags but exhibit a steady downward trajectory as the lag order increases. By lag 24, the p-values hover critically close to the red dashed line ($α=0.05$), ultimately falling below these confidence bounds after lag 25.
+
+-   *Shapiro-Wilk Test*: The test yields a p \< 0.001 , statistically rejecting the null hypothesis of normality at any conventional significance level.
+
+### M311: SARIMA$(3,1,1)(0,1,2)_{12}$ — ML
+
+```{r}
+#| label: tbl-coef-m311-ml
+#| tbl-cap: "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], ML"
+
+make_coef_table(m311_ml, "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], ML")
+```
+
+-   *Non-Seasonal AR/MA Terms*: The non-seasonal structure is highly significant under Maximum Likelihood (ML) estimation, contrasting sharply with its CSS counterpart. The first-order AR term ar1 (0.6100, p\<0.001) and the third-order AR term ar3 (0.1627, p\<0.001) are highly significant, while the second-order AR term ar2 (0.1053, p=0.0219) achieves significance at the 5% level. Additionally, the single moving average term ma1 is highly significant (−0.9883, p\<0.001). This widespread significance across the non-seasonal parameters provides strong statistical justification for the expanded AR(3) baseline under this specific optimization method.
+
+-   *Seasonal MA Terms*: The first-order seasonal moving average term sma1 is highly significant (−0.7570, p\<0.001), reaffirming its critical and stable role in accounting for seasonal dependency. Conversely, the second-order seasonal moving average term sma2 (−0.0197, p=0.6372) remains statistically insignificant, matching the established pattern observed uniformly across all prior model variants.
+
+```{r}
+#| label: fig-resid-m311-ml
+#| fig-cap: "Residual diagnostics: M311 — SARIMA(3,1,1)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m311_ml <- residual.analysis(m311_ml, std = TRUE, model_class = "ARIMA")
+```
+
+-   *Time Series Plot*: The standardised residuals fluctuate cleanly around zero, indicating a stable mean with no obvious deterministic trend or uncaptured seasonal patterns remaining. A few extreme spikes exceeding ±3 are visible during known historical shock periods. Outside these specific intervals, variance clustering is minimal, suggesting a stable conditional variance.
+
+-   *Histogram*: The residual distribution is centered near zero and appears broadly symmetric about its median. However, it displays a pronounced negative skewness characterized by an elongated left tail, which is directly attributable to severe, isolated historical macro shocks.
+
+-   *Q-Q Plot*: The majority of the empirical distribution closely tracks the theoretical normal reference line between the −2 and +3 quantiles. The primary deviation is strictly confined to the lower tail below the −2 theoretical quantile mark.
+
+-   *ACF Plot*: The ACF shows that most bars lie safely within the 95% confidence bounds. However, a few specific bars marginally puncture the blue dashed threshold line, indicating that minor residual autocorrelation remains uncaptured despite the structural optimization of the non-seasonal components.
+
+-   *Ljung-Box Test*: The test yields p-values that start well above the alpha threshold at early lags, but exhibit a steady downward trajectory as the lag order increases. By lag 25, the p-values hover critically close to the red dashed significance threshold ($α=0.05$), ultimately falling below this line after lag 26.
+
+-   *Shapiro-Wilk Test*: W = 0.9743, p \< 0.001, statistically rejecting the null hypothesis of normality at any conventional significance level. This rejection is overwhelmingly driven by the extreme tail behavior from historical shocks rather than a fundamental flaw in the structural modeling.
+
+Under ML, M311 presents a strong coefficient profile with ar1 (0.6100, p\<0.001), ar2 (0.1053, p=0.022), ar3 (0.1627, p\<0.001), and ma1 (−0.9883, p\<0.001) all achieving significance. The residual diagnostics are broadly comparable to M212, with both models centred at zero and sharing Shapiro-Wilk rejections driven by historical outliers rather than model failure. However, the near-unit ma1 (−0.9883) sits on the boundary of invertibility, a concern absent in M212 where coefficients remain moderate and well-behaved. M311 therefore cannot displace M212 as the benchmark.
+
+**The CSS-ML estimation will determine whether this near-invertibility issue persists or if M311 is disqualified due to instability.**
+
+### M311: SARIMA$(3,1,1)(0,1,2)_{12}$ — CSS-ML
+
+```{r}
+#| label: tbl-coef-m311-cssml
+#| tbl-cap: "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], CSS-ML"
+
+make_coef_table(m311_cssml, "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], CSS-ML")
+```
+
+-   *Non-Seasonal AR/MA Terms*: The non-seasonal parameters are highly significant under the combined CSS-ML optimization framework, showing strong convergence with the pure ML results. The first-order AR term ar1 (0.6101, p\<0.001) and third-order AR term ar3 (0.1627, p\<0.001) are highly significant, while the second-order AR term ar2 (0.1053, p=0.0218) is significant at the conventional 5% level. The single moving average term ma1 is also highly significant (−0.9883, p\<0.001). This broad significance across the non-seasonal terms provides robust mathematical backing for the expanded AR(3) framework under this estimation method.
+
+-   *Seasonal MA Terms*: The first-order seasonal moving average term sma1 is highly significant (−0.7569, p\<0.001), confirming its critical, unyielding role in capturing seasonal dependencies across all models. Conversely, the second-order seasonal moving average term sma2 (−0.0198, p=0.6357) remains statistically insignificant, conforming precisely to the structural patterns observed uniformly throughout this analysis.
+
+```{r}
+#| label: fig-resid-m311-cssml
+#| fig-cap: "Residual diagnostics: M311 — SARIMA(3,1,1)(0,1,2)[12], CSS-ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m311_cssml <- residual.analysis(m311_cssml, std = TRUE, model_class = "ARIMA")
+```
+
+**Figure 39. Residuals M311 CSS-ML**
+
+-   *Time Series Plot*: The standardised residuals fluctuate cleanly around zero, indicating a stable mean with no obvious deterministic trend or uncaptured seasonal patterns remaining. A few extreme spikes exceeding ±3 are visible during known historical shock periods. Outside these specific intervals, variance clustering is minimal, suggesting a stable conditional variance.
+
+-   *Histogram*: The empirical distribution of the residuals is roughly symmetric and well-centered near zero. However, it exhibits a distinct left skewness and a longer left tail, which is directly attributable to severe, isolated historical macro shocks.
+
+-   *Q-Q Plot*: The majority of the empirical distribution closely tracks the theoretical normal reference line between the −2 and +3 quantiles. The primary deviation is strictly confined to the lower tail below the −2 theoretical quantile mark. This sharp downward departure confirms a heavy left tail driven by historical outliers.
+
+-   *ACF Plot*: The ACF shows that most bars lie safely within the 95% confidence bounds. However, a few specific bars marginally puncture the blue dashed threshold line, indicating that minor residual autocorrelation remains uncaptured despite the structural optimization of the non-seasonal components.
+
+-   *Ljung-Box Test*: The test yields p-values that start well above the alpha threshold at early lags, but exhibit a steady downward trajectory as the lag order increases. By lag 10 and 25, the p-values hover critically close significance threshold ($α=0.05$), ultimately falling below this line after lag 26.
+
+-   *Shapiro-Wilk Normality Test*: The test yields a W statistic of 0.9743 with highly significant p-value (p\<0.001), statistically rejecting the null hypothesis of normality.
+
+**Model Evaluation Summary.** The CSS-ML and ML estimations converge on identical solutions, confirming that the CSS numerical instability was an isolated estimation artefact rather than a fundamental model failure. Under both ML and CSS-ML, all non-seasonal parameters achieve significance, presenting a stronger and more complete coefficient profile than the current benchmark M212, where ar2 remains borderline across all estimation methods. The near-unit ma1 (\|ma1\| = 0.9883) is acknowledged as a proximity concern to the invertibility boundary and warrants monitoring, but does not constitute a technical violation. Residual diagnostics are broadly comparable to M212.
+
+**On balance, M311 presents a competitive coefficient profile relative to M212 and competing candidate, with the information criteria and in-sample accuracy comparison in the following section providing the final basis for model selection**.
+
+------------------------------------------------------------------------
+
+### M312: SARIMA$(3,1,2)(0,1,2)_{12}$ — CSS
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m312-css
+#| tbl-cap: "Coefficients: M312 — SARIMA(3,1,2)(0,1,2)[12], CSS"
+
+make_coef_table(m312_css, "Coefficients: M312 — SARIMA(3,1,2)(0,1,2)[12], CSS")
+```
+
+```{r}
+#| label: fig-resid-m312-css
+#| fig-cap: "Residual diagnostics: M312 — SARIMA(3,1,2)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m312_css <- residual.analysis(m312_css, std = TRUE, model_class = "ARIMA")
+```
+
+### M312: SARIMA$(3,1,2)(0,1,2)_{12}$ — ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m312-ml
+#| tbl-cap: "Coefficients: M312 — SARIMA(3,1,2)(0,1,2)[12], ML"
+
+make_coef_table(m312_ml, "Coefficients: M312 — SARIMA(3,1,2)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m312-ml
+#| fig-cap: "Residual diagnostics: M312 — SARIMA(3,1,2)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m312_ml <- residual.analysis(m312_ml, std = TRUE, model_class = "ARIMA")
+```
+
+------------------------------------------------------------------------
+
+### M313: SARIMA$(3,1,3)(0,1,2)_{12}$ — CSS
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m313-css
+#| tbl-cap: "Coefficients: M313 — SARIMA(3,1,3)(0,1,2)[12], CSS"
+
+make_coef_table(m313_css, "Coefficients: M313 — SARIMA(3,1,3)(0,1,2)[12], CSS")
+```
+
+```{r}
+#| label: fig-resid-m313-css
+#| fig-cap: "Residual diagnostics: M313 — SARIMA(3,1,3)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m313_css <- residual.analysis(m313_css, std = TRUE, model_class = "ARIMA")
+```
+
+### M313: SARIMA$(3,1,3)(0,1,2)_{12}$ — ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m313-ml
+#| tbl-cap: "Coefficients: M313 — SARIMA(3,1,3)(0,1,2)[12], ML"
+
+make_coef_table(m313_ml, "Coefficients: M313 — SARIMA(3,1,3)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m313-ml
+#| fig-cap: "Residual diagnostics: M313 — SARIMA(3,1,3)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m313_ml <- residual.analysis(m313_ml, std = TRUE, model_class = "ARIMA")
+```
+
+### M313: SARIMA$(3,1,3)(0,1,2)_{12}$ — CSS-ML
+
+::: callout-note
+The detailed coefficient interpretations and residual diagnostics for this model are omitted, following the exact estimation, CSS/ML convergence checking, and residual diagnostic framework applied to the benchmark model.
+:::
+
+```{r}
+#| label: tbl-coef-m313-cssml
+#| tbl-cap: "Coefficients: M313 — SARIMA(3,1,3)(0,1,2)[12], CSS-ML"
+
+make_coef_table(m313_cssml, "Coefficients: M313 — SARIMA(3,1,3)(0,1,2)[12], CSS-ML")
+```
+
+```{r}
+#| label: fig-resid-m313-cssml
+#| fig-cap: "Residual diagnostics: M313 — SARIMA(3,1,3)(0,1,2)[12], CSS-ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m313_cssml <- residual.analysis(m313_cssml, std = TRUE, model_class = "ARIMA")
+```
+
+### Synthesis: Parameter Estimation and Residual Diagnostics
+
+After evaluating all eleven candidate models across coefficient stability, estimation method consistency, and residual diagnostics, the viable candidates are ranked as follows:
+
+-   **1st — M311: SARIMA**$(3,1,1)(0,1,2)_{12}$: The strongest coefficient profile in the candidate set under ML and CSS-ML, with all non-seasonal parameters achieving significance — ar1 (0.6101, p\<0.001), ar2 (0.1053, p=0.022), ar3 (0.1627, p\<0.001), and ma1 (−0.9883, p\<0.001). ML and CSS-ML converge on identical solutions, confirming that the CSS instability was an isolated estimation artefact. Residual diagnostics are broadly adequate and comparable to M212. The near-unit ma1 (\|ma1\| = 0.9883) is acknowledged as a proximity concern to the invertibility boundary but does not constitute a technical violation. M311 is carried forward as the primary candidate.
+
+-   **2nd — M212: SARIMA**$(2,1,2)(0,1,2)_{12}$: A stable and well-behaved model across all estimation methods with no sign reversals or near-cancellation. The borderline ar2 (p ≈ 0.056–0.080) is the sole acknowledged weakness. Residuals are adequate with a Ljung-Box trajectory holding above 0.05 through approximately lags 20–26. M212 is retained as the parsimonious runner-up with moderate, well-behaved coefficients throughout.
+
+-   **3rd — M111: SARIMA**$(1,1,1)(0,1,2)_{12}$: The most parsimonious viable model. All non-seasonal parameters are robustly significant and stable across CSS and ML with no identification concerns. Residual diagnostics are comparable to M212 at a lower parameter cost.
+
+Based on parameter behavior and residual diagnostics, the most structurally sound models have been identified. **The next stage will leverage AIC/BIC and in-sample accuracy to formally confirm the final selection**.
+
+------------------------------------------------------------------------
+
+# Model Selection
+
+## Information Criteria Comparison
+
+```{r}
+#| label: tbl-aic-ranking
+#| tbl-cap: "Candidate models ranked by AIC (ML method; lower = better)."
+
+models_ml <- list(m012_ml, m013_ml, m111_ml, m112_ml, m113_ml,
+                  m211_ml, m212_ml, m213_ml, m311_ml, m312_ml, m313_ml)
+
+labels_ml <- c(
+  "M012: SARIMA(0,1,2)(0,1,2)[12]",
+  "M013: SARIMA(0,1,3)(0,1,2)[12]",
+  "M111: SARIMA(1,1,1)(0,1,2)[12]",
+  "M112: SARIMA(1,1,2)(0,1,2)[12]",
+  "M113: SARIMA(1,1,3)(0,1,2)[12]",
+  "M211: SARIMA(2,1,1)(0,1,2)[12]",
+  "M212: SARIMA(2,1,2)(0,1,2)[12]",
+  "M213: SARIMA(2,1,3)(0,1,2)[12]",
+  "M311: SARIMA(3,1,1)(0,1,2)[12]",
+  "M312: SARIMA(3,1,2)(0,1,2)[12]",
+  "M313: SARIMA(3,1,3)(0,1,2)[12]"
+)
+
+ic_raw <- data.frame(
+  Model = labels_ml,
+  df    = sapply(models_ml, function(m) length(m$coef) + 1L),
+  AIC   = round(sapply(models_ml, AIC), 3)
+)
+
+aic_sorted <- sort.score(ic_raw, score = "aic")
+knitr::kable(aic_sorted, align = "lccc", row.names = FALSE, booktabs = TRUE)
+```
+
+**AIC ranking** (@tbl-aic-ranking). AIC tends to favour more flexible specifications. The top-ranked model by AIC is M213 (1851.9), which is disqualified due to the most severe parameter instability in the candidate set, three estimation methods producing three structurally incompatible solutions.
+
+Removing M213 from contention, M311 ranks first on AIC among all viable candidates (1855.1), outperforming M212 by 4.6 units (1859.7) with identical degrees of freedom (df = 7). This gap reflects a genuine improvement in fit rather than a parsimony trade-off. The near-unit ma1 (\|ma1\| = 0.9883) in M311 is acknowledged as a proximity concern but does not constitute a technical disqualification, as the model remains invertible.
+
+M113 sits at 1859.842, effectively tied with M212 (difference of 0.116 units), but M113's CSS/ML structural reversal identified in the synthesis prevents it from being elevated on this basis alone. Among the remaining candidates, M212 (1859.7), M012 (1861.4), and M111 (1862.4) follow in order.
+
+```{r}
+#| label: tbl-bic-ranking
+#| tbl-cap: "Candidate models ranked by BIC (ML method; lower = better)."
+
+ic_raw_bic <- data.frame(
+  Model = labels_ml,
+  df    = sapply(models_ml, function(m) length(m$coef) + 1L),
+  BIC   = round(sapply(models_ml, BIC), 3)
+)
+
+bic_sorted <- sort.score(ic_raw_bic, score = "bic")
+knitr::kable(bic_sorted, align = "lccc", row.names = FALSE, booktabs = TRUE)
+```
+
+**BIC ranking** (@tbl-bic-ranking). The BIC table introduces a parsimony correction that reshapes the ranking. M012 (1883.8) and M111 (1884.7) lead overall, both benefiting from their low parameter counts (df = 5). However, M012 carries no autoregressive component and M111 only a single AR term, both of which were shown insufficient to capture the short-run momentum visible in the Model 3 residual PACF. M311 ranks third overall on BIC (1886.4), ahead of M213 (1887.7), M112 (1889.5), M211 (1890.7), and M212 (1891.0). Among viable candidates with a comparable non-seasonal structure, M311 leads BIC by 4.6 units over M212 reinforcing a consistent fit advantage across both criteria.
+
+### Synthesis: Information Criteria Comparison
+
+Across both information criteria, the evidence consistently favours M311 among viable candidates with a sufficiently rich non-seasonal structure. M213 is disqualified on structural grounds despite its nominal AIC lead. M012 and M111 lead BIC through parsimony alone but lack the autoregressive depth required to adequately capture short-run dynamics. M311 therefore emerges as the primary finalist on both AIC and BIC among structurally adequate models, with M212 retained as the parsimonious runner-up and M111 as the strictest-parsimony alternative.
+
+Information criteria provide a theoretical comparison. The next section examines in-sample accuracy (RMSE, MAE, MAPE, MASE) to further confirm the selection of M311.
+
+------------------------------------------------------------------------
+
+## In-Sample Accuracy
+
+```{r}
+#| label: tbl-accuracy
+#| tbl-cap: "In-sample accuracy for all candidate models (ML)."
+
+acc_list <- lapply(models_ml, function(m) accuracy(m)[1, 1:6])
+acc_df   <- as.data.frame(do.call(rbind, acc_list))
+colnames(acc_df) <- c("ME", "RMSE", "MAE", "MPE", "MAPE", "MASE")
+rownames(acc_df) <- labels_ml
+
+knitr::kable(round(acc_df, 3), booktabs = TRUE, align = "c")
+```
+
+RMSE, MAE, MAPE, and MASE are the primary basis for comparing in-sample fit, as they measure forecast error magnitude without the directional cancellation that affects ME and MPE. M213 is excluded from this comparison on the grounds of severe parameter instability established in the estimation section.
+
+M311 carries a ME of −0.790, which is larger in absolute terms than most other candidates. This mild systematic negative bias is acknowledged, but does not outweigh the consistent accuracy advantages M311 demonstrates across the primary absolute error metrics.
+
+Among all favorable candidates, M311 leads on:
+
+-   **RMSE**: M311 (38.923) outperforms M212 (38.977) and M111 (39.243)
+-   **MAE**: M311 (28.160) outperforms M212 (28.439) and M111 (28.630)
+-   **MAPE**: M311 (12.300) outperforms M212 (12.333) and M111 (12.421)
+-   **MASE**: M311 (0.511) outperforms M212 (0.516) and M111 (0.520)
+
+The absolute spread across candidates is narrow—just 0.27 million AUD for RMSE and 0.21 million AUD for MAE. Relative to the series historical mean of 242 million AUD, these margins represent less than 0.2%, meaning no single model decisively dominates on absolute fit alone.
+
+However, the relative rankings are highly consistent. M212 places second on every metric, confirming its status as a robust, parsimonious runner-up. Conversely, M111 finishes last across all four metrics, proving that its strict parsimony incurs a clear, albeit modest, accuracy cost.
+
+The accuracy filter therefore corroborates the information criteria ranking. **M311 is confirmed as the finalist model**, leading on AIC, BIC among structurally adequate candidates, and all four primary in-sample accuracy metrics.
+
+------------------------------------------------------------------------
+
+## Finalist Model
+
+Three sequential filters have been applied — parameter estimation stability and residual diagnostics, information criteria (AIC and BIC), and in-sample accuracy metrics — and all three consistently point to the same conclusion. **SARIMA**$(3,1,1)(0,1,2)_{12}$ (M311) is selected as the final model.
+
+Across all three filters, M311 is the only viable candidate that leads consistently without a disqualifying failure on any dimension. Under ML and CSS-ML, it presents the strongest coefficient profile in the candidate set with all non-seasonal parameters achieving significance. It ranks first on AIC (1855.1) and first on BIC (1886.4) among structurally adequate candidates with comparable non-seasonal complexity.
+
+It (M311) leads on every primary in-sample accuracy metric — RMSE (38.923), MAE (28.160), MAPE (12.300), and MASE (0.511). The near-unit ma1 (\|ma1\| = 0.9883) is the sole acknowledged concern: it sits in proximity to the invertibility boundary but does not cross it, and is outweighed by the model's consistent superiority across all three evaluation filters.
+
+```{r}
+#| label: tbl-coef-m311-final
+#| tbl-cap: "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], ML — Final Selected Model"
+
+make_coef_table(m311_ml, "Coefficients: M311 — SARIMA(3,1,1)(0,1,2)[12], ML")
+```
+
+```{r}
+#| label: fig-resid-m311-final
+#| fig-cap: "Residual diagnostics for the finalist model: M311 — SARIMA(3,1,1)(0,1,2)[12], ML."
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m311_ml <- residual.analysis(m311_ml, std = TRUE, model_class = "ARIMA")
+```
+
+------------------------------------------------------------------------
+
+# Overfitting Check
+
+Based on the combined evidence of AIC, BIC, coefficient significance, and residual diagnostics, **SARIMA**$(3,1,1)(0,1,2)_{12}$ (M311) is selected as the preferred finalist.
+
+To confirm this choice, overfitting is assessed by fitting a model with **one additional AR or MA parameter beyond the preferred finalist** and evaluating whether the extra complexity adds genuine value. The evaluation proceeds sequentially:
+
+-   the overfitted model is first examined on coefficient significance and residual diagnostics. *If the additional term is statistically significant and the residual diagnostics improve upon the selected model*,
+
+-   the comparison is escalated to AIC/BIC ranking and in-sample accuracy metrics to determine whether the more complex model warrants selection. If, however, the additional term is insignificant or the residual diagnostics show no meaningful improvement, the overfitted model is immediately rejected and the more parsimonious finalist is confirmed without requiring further comparison on information criteria.
+
+The two overfitting directions for the selected model SARIMA$(3,1,1)(0,1,2)_{12}$ are **p+1**, which would produce SARIMA$(4,1,1)(0,1,2)_{12}$, and **q+1**, which corresponds to SARIMA$(3,1,2)(0,1,2)_{12}$.
+
+Since M312 was already estimated in the candidate set, its overfitting evidence is drawn directly from the coefficient tables, information criteria, and residual diagnostics already presented. No additional model fitting is required. However, SARIMA$(4,1,1)(0,1,2)_{12}$ was not estimated as a candidate yet.
+
+## Overfit by q+1 — M312: SARIMA$(3,1,2)(0,1,2)_{12}$
+
+M312 was already estimated. Adding a second MA term to the selected M311 causes a complete collapse of the entire non-seasonal structure under both CSS and ML estimation. All five non-seasonal parameters, ar1, ar2, ar3, ma1, and ma2, are entirely insignificant across both methods.
+
+The model is effectively reduced to a pure seasonal structure driven solely by sma1, with no non-seasonal dynamics whatsoever, a severe regression from M311's well-identified AR(3) and MA(1) framework. AIC worsens from 1855.107 to 1865.638 (+10.531 units) and BIC worsens from 1886.370 to 1901.367 (+14.997 units). Residual diagnostics show no improvement over M311. Adding further complexity beyond M311 adds no explanatory value and actively degrades model quality.
+
+With the q+1 path definitively ruled out due to structural collapse, the final component of the **overfitting verification requires testing the p+1 direction**. Accordingly, the SARIMA$(4,1,1)(0,1,2)_{12}$ model will be estimated next. Its resulting coefficient significance and residual diagnostics will be analyzed to confirm whether expanding the autoregressive structure yields any genuine predictive power.
+
+## Overfit by p+1 — M411: SARIMA$(4,1,1)(0,1,2)_{12}$
+
+```{r}
+#| label: fit-m411
+
+m411_css <- Arima(WoolTS, order = c(4,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "CSS", lambda = lambda_opt)
+m411_ml  <- Arima(WoolTS, order = c(4,1,1),
+                  seasonal = list(order = c(0,1,2), period = 12),
+                  method = "ML", lambda = lambda_opt)
+```
+
+To verify the structural integrity of our baseline model, a formal overfitting test was conducted by expanding the non-seasonal parameter space. The resulting estimates demonstrate that the expanded structure cannot be supported: under CSS, all five non-seasonal parameters — ar1 (0.0244, p=0.938), ar2 (−0.1148, p=0.323), ar3 (0.0000, p=0.9996), ar4 (−0.0731, p=0.131), and ma1 (−0.3784, p=0.226) — are entirely insignificant, with ar3 returning a near-zero estimate signalling complete redundancy.
+
+```{r}
+#| label: tbl-coef-m411-css
+#| tbl-cap: "Coefficients: Overfitting p+1 (M411) — SARIMA(4,1,1)(0,1,2)[12], CSS"
+
+make_coef_table(m411_css, "Coefficients: M411 — SARIMA(4,1,1)(0,1,2)[12], CSS")
+```
+
+To determine whether this structural failure is merely an artifact of the CSS optimization, the model was re-estimated using Maximum Likelihood. The ML estimation confirms this collapse without recovery: ar1 (0.0733, p=0.844), ar2 (−0.0989, p=0.476), ar3 (0.0109, p=0.912), ar4 (−0.0706, p=0.196), and ma1 (−0.4331, p=0.244) all remain entirely insignificant. Across both methods, only sma1 retains significance (CSS: −0.7774, p\<0.001; ML: −0.7787, p\<0.001), reducing the model to an effectively pure seasonal structure with no meaningful non-seasonal dynamics.
+
+```{r}
+#| label: fig-resid-m411-css
+#| fig-cap: "Residual diagnostics: M411 — SARIMA(4,1,1)(0,1,2)[12], CSS"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m411_css <- residual.analysis(m411_css, std = TRUE, model_class = "ARIMA")
+```
+
+```{r}
+#| label: tbl-coef-m411-ml
+#| tbl-cap: "Coefficients: Overfitting p+1 (M411) — SARIMA(4,1,1)(0,1,2)[12], ML"
+
+make_coef_table(m411_ml, "Coefficients: M411 — SARIMA(4,1,1)(0,1,2)[12], ML")
+```
+
+Adding a fourth AR term to the selected M311 produces a complete collapse of the non-seasonal structure under both CSS and ML estimation. This is a stark contrast to M311, where ar1, ar2, ar3, and ma1 all achieve significance under both ML and CSS-ML. The complete agreement between CSS and ML on total non-seasonal insignificance directly confirms that the AR(3) order in M311 is the correct and sufficient autoregressive specification. Extending to AR(4) adds no signal, destroys the identification achieved by M311, and introduces unnecessary complexity. The additional AR term cannot be accepted.
+
+```{r}
+#| label: fig-resid-m411-ml
+#| fig-cap: "Residual diagnostics: M411 — SARIMA(4,1,1)(0,1,2)[12], ML"
+#| fig-height: 7
+#| fig-width: 7
+
+residuals_m411_ml <- residual.analysis(m411_ml, std = TRUE, model_class = "ARIMA")
+```
+
+Under both CSS and ML, all five non-seasonal parameters (ar1, ar2, ar3, ar4, ma1) are entirely insignificant. Only sma1 retains significance, reducing the model to a pure seasonal structure. The p+1 direction adds no signal and destroys the identification achieved by M311.
+
+## Overfitting Decision
+
+Both overfitting directions fail conclusively. The q+1 extension (M312) produces complete non-seasonal coefficient collapse with AIC worsening by 10.531 units and BIC by 14.997 units. The p+1 extension (M411) produces an identical collapse under both CSS and ML, with all five non-seasonal parameters insignificant across both estimation methods. Neither direction of extension adds any value beyond M311. **SARIMA**$(3,1,1)(0,1,2)_{12}$ is confirmed as the final selected model.
+
+Having confirmed the final model, we now generate 30-month-ahead forecasts to illustrate its practical application.
+
+------------------------------------------------------------------------
+
+# Forecasting
+
+With **SARIMA**$(3,1,1)(0,1,2)_{12}$ confirmed as the final selected model, we proceed to generate out-of-sample forecasts. The model was estimated on the full available series from July 1971 to February 2026. Forecasts are produced on the back-transformed AUD scale with 80% and 95% prediction intervals to characterise forecast uncertainty across the projection horizon.
+
+```{r}
+#| label: fig-forecast-30month
+#| fig-cap: "30-month ahead forecast: SARIMA(3,1,1)(0,1,2)[12]."
+#| fig-height: 5
+#| fig-width: 7
+
+mPREF       <- m311_ml
+mPREF_label <- "SARIMA(3,1,1)(0,1,2)[12]"
+
+frc_pref <- forecast::forecast(mPREF, h = 30)
+plot(frc_pref,
+     main = paste0("30-month forecast: ", mPREF_label),
+     xlab = "Year", ylab = "AUD (Million)", cex.main = 0.9,
+     fcol = "red", flwd = 1.5)
+lines(fitted(mPREF), col = "blue", lwd = 1.2)
+legend("topright", lty = 1, pch = c(1, NA, NA),
+       col = c("black", "blue", "red"),
+       legend = c("Observed", "Fitted", "Forecast"),
+       cex = 0.75, bty = "n")
+```
+
+```{r}
+#| label: tbl-forecast-30month
+#| tbl-cap: "30-month ahead forecasts with 80% and 95% prediction intervals: SARIMA$(3,1,1)(0,1,2)_{12}$."
+
+frc_pref_df       <- as.data.frame(frc_pref)
+frc_pref_df       <- round(frc_pref_df, 2)
+frc_pref_df$Month <- rownames(frc_pref_df)
+frc_pref_df       <- frc_pref_df[, c("Month", "Point Forecast",
+                                      "Lo 80", "Hi 80", "Lo 95", "Hi 95")]
+
+knitr::kable(frc_pref_df, align = "lrrrrr", row.names = FALSE, booktabs = TRUE)
+```
+
+The 30-month ahead forecast from **SARIMA**$(3,1,1)(0,1,2)_{12}$ is presented in @fig-forecast-30month and @tbl-forecast-30month. Several features of the forecast are consistent with the historical behaviour documented in Section 2 and visible in @fig-ts-plot. The seasonal pattern is preserved throughout the forecast horizon. The forecast reveals a dual-trough, dual-peak within-year cycle consistent with the seasonal regularities identified in @fig-ts-plot.
+
+Peaks occur in March (385.05, 365.58, and 358.02 AUD million across the three forecast years) and secondary peaks in December (312.74, 304.57 AUD million), reflecting the end-of-clip-season export surges historically associated with the December–March period.
+
+Troughs occur in August (206.47, 198.21, and 195.21 AUD million) and January (201.65, 196.01 AUD million), consistent with the mid-year and post-New-Year trade lulls observed in Figure 1. Notably, point forecasts show a modest downward drift across the three forecast years, with the March peak declining from 385.05 in 2026 to 358.02 in 2028 and August troughs falling from 206.47 to 195.21, suggesting a gradual moderation in trade values over the projection horizon.
+
+Prediction intervals widen progressively with the forecast horizon (@fig-forecast-30month and @tbl-forecast-30month). The 95% interval for August 2026 is \[119.80, 326.79\] (a range of 207 AUD million), while by August 2028 it widens to \[80.40, 385.56\] (a range of 305 AUD million). This widening reflects the accumulation of uncertainty over multi-step projections and is an honest representation of the inherent volatility of this commodity series rather than a model deficiency.
+
+------------------------------------------------------------------------
+
+# Conclusion
+
+This study applied a SARIMA modelling framework to 55 years of monthly Australian wool and sheepskins trade data spanning July 1971 to February 2026, with the objective of identifying a robust, parsimonious model capable of capturing both the seasonal dynamics and short-run dependencies of this commodity series.
+
+The analysis proceeded through stages. A Box-Cox transformation with λ = `r round(lambda_opt, 4)`was applied to stabilise the non-constant variance characteristic of the series. A sequential residual approach identified the seasonal structure as $(0,1,2)_{12}$ , one seasonal difference to remove the seasonal unit root and a two-term seasonal MA to absorb residual seasonal autocorrelation. And then, a non-seasonal difference $(d=1)$ was adopted conservatively given contradictory stationarity test results.
+
+Eleven candidate SARIMA models were identified through ACF/PACF, EACF, and BIC subset selection. And these models are evaluated across three independent filters, parameter estimation stability and residual diagnostics, information criteria (AIC and BIC), and in-sample accuracy metrics.
+
+**SARIMA**$(3,1,1)(0,1,2)_{12}$ emerged as the final selected model, confirmed by the overfitting check.
+
+The 30-month ahead forecast projects a characteristic seasonal oscillation: trade values decline from early 2026 toward a mid-year trough in the June–August window, before recovering through the second half of the year with a peak approaching December. This pattern repeats coherently across the forecast horizon, consistent with the historical seasonal cycle driven by Australian wool clip schedules documented in Section 2. Prediction intervals widen progressively with the horizon, appropriately reflecting the compounding uncertainty inherent in a volatile commodity series.
+
+# Implications
+
+These findings carry practical implications for the three stakeholder groups identified at the outset.
+
+For **wool producers**, the forecast's mid-year trough and year-end recovery provide a 6–12 month visibility window that aligns directly with biological shearing timelines, allowing producers to calibrate stocking levels and hedging decisions against an evidence-based price trajectory rather than ad hoc expectations.
+
+For **exporters and logistics firms**, the predictable December demand surge, visible across all three forecast years, provides lead time to pre-book ocean freight containers and secure warehouse capacity ahead of the seasonal rush, reducing the risk of capacity shortfalls at peak trading periods.
+
+For **policymakers**, the forecast intervals quantify the range of plausible trade outcomes and can be used to stress-test trade balance projections, identify concentration risk in the agricultural export portfolio, and time policy interventions to periods of anticipated market stress rather than reacting after the fact.
+
+Without reliable forecasts, these decisions default to reactive management: overstocking into declining markets, understocking ahead of demand surges, and policy responses that lag structural shifts in trade values.
+
+The SARIMA$(3,1,1)(0,1,2)_{12}$model developed here provides a statistically grounded, regularly updatable forecasting tool that directly addresses this gap, offering actionable foresight at the operational, commercial, and policy levels of the Australian wool export chain.
+
+# Limitations
+
+Several limitations should be acknowledged. First, the sample period includes the 1991 structural break (collapse of the Reserve Price Scheme), which may distort parameter estimates. Second, the Box-Cox transformation's confidence interval had an indeterminate upper bound. Third, the forecast assumes that historical patterns continue unchanged and cannot anticipate unprecedented future shocks.
+
+# Acknowledgement
+
+We would like to express our sincere gratitude to Dr. Haydar Demirhan and Dr. Zhendong Huang for their valuable guidance throughout this project.
+
+# What Next
+
+With the primary analysis of the full series complete, the essential next step is to address the structural change point identified in the data. In time-series modeling, a major structural break signifies that the underlying forces driving the data have fundamentally shifted. Because older patterns can distort current forecasts, standard econometric practice requires isolating the data after this shift and re-running the entire analytical pipeline.
+
+```{r apx_load_data}
+# Load data and build post-break sub-series
+apx_Trade <- read.csv("International_Trade_in_Goods.csv", header = TRUE)
+
+apx_WoolTS_full <- ts(
+  apx_Trade$Wool...sheepskins..in..M.,
+  start     = c(1971, 7),
+  end       = c(2026, 2),
+  frequency = 12
+)
+
+# Post-structural break: January 1990 onward
+apx_WoolTS <- window(apx_WoolTS_full, start = c(1990, 1))
+```
+
+To account for this, we conducted a dedicated post-break analysis on a truncated series spanning January 1990 to February 2026. This process yielded a SARIMA\$(0,1,2)(2,1,2)\_{12}\$ model, which differs structurally from our full-series model. This divergence confirms that the data-generating processes of the two periods are genuinely distinct, validating the decision to analyze them separately. To ensure the reliability of this new model, we implemented a post-break reserved sample scheme. The complete methodology and empirical results for this step are detailed in Appendix.
+
+```{r apx_fig_A1_ts-post-break}
+#| label: fig-ts-plot-post-break
+#| fig-cap: "Wool & sheepskins monthly trade value (AUD million), 1920–2026."
+#| fig-height: 4
+#| fig-width: 7
+
+plot_ts(
+  apx_WoolTS,
+  main = "Wool & sheepskins monthly trade value (AUD million), 1990-2026.",
+  ylab = "AUD (Million)"
+)
+```
+
+```{r apx_fig_frc_selected-post-break}
+#| label: fig-forecast-30month-post-break
+#| fig-cap: "30-month ahead forecast: SARIMA(0,1,2)(2,1,2)[12]."
+#| fig-height: 5
+#| fig-width: 7
+
+## Model Fitting
+apx_m012_ml    <- Arima(apx_WoolTS, order = c(0,1,2),
+                        seasonal = list(order = c(2,1,2), period = 12),
+                        method = "ML",     lambda = 0.58)
+
+## Foracsting
+mPREF       <- apx_m012_ml
+mPREF_label <- "SARIMA(0,1,2)(2,1,2)[12]"
+
+frc_pref <- forecast::forecast(mPREF, h = 30)
+plot(frc_pref,
+     main = paste0("30-month forecast: ", mPREF_label),
+     xlab = "Year", ylab = "AUD (Million)", cex.main = 0.9,
+     fcol = "red", flwd = 1.5)
+lines(fitted(mPREF), col = "blue", lwd = 1.2)
+legend("topright", lty = 1, pch = c(1, NA, NA),
+       col = c("black", "blue", "red"),
+       legend = c("Observed", "Fitted", "Forecast"),
+       cex = 0.75, bty = "n")
+```
+
+------------------------------------------------------------------------
+
+\newpage
+
+# References
+
+ABARES (Australian Bureau of Agricultural and Resource Economics and Sciences) 2022, *Natural fibres: September 2022*, ABARES, Australian Government, viewed 29 April 2026, <https://www.agriculture.gov.au/abares/research-topics/agricultural-outlook/natural-fibres-sept-2022>.
+
+ABS (Australian Bureau of Statistics) 2024, *International trade in goods, Table 3: Goods credits, original, current prices*, cat. no. 5368.0, ABS, viewed 29 April 2026, <https://www.abs.gov.au/statistics/economy/international-trade/international-trade-goods/latest-release#data-downloads>.
+
+Chan, KS & Ripley, B 2022, 'TSA: time series analysis', R package version 1.3.1, viewed 29 April 2026, <https://CRAN.R-project.org/package=TSA>.
+
+Cryer, JD & Chan, KS 2008, *Time series analysis: with applications in R*, 2nd edn, Springer, New York.
+
+Demirhan, H 2026, *MATH1318 Time Series Analysis: Lecture Online Modules 1–9*, course material for MATH1318 Time Series Analysis, RMIT University, Melbourne.
+
+Hyndman, RJ & Athanasopoulos, G 2021, *Forecasting: principles and practice*, 3rd edn, OTexts, Melbourne, viewed 29 April 2026, <https://otexts.com/fpp3/>.
+
+Hyndman, RJ, Athanasopoulos, G, Bergmeir, C, et al. 2023, 'forecast: forecasting functions for time series and linear models', R package version 8.21.1, viewed 29 April 2026, <https://CRAN.R-project.org/package=forecast>.
+
+National Museum of Australia n.d., 'Merino sheep introduced', National Museum of Australia, viewed 29 April 2026, <https://www.nma.gov.au/defining-moments/resources/merino-sheep-introduced>.
+
+Robinson, D, Hayes, A & Couch, S 2023, 'broom: convert statistical objects into tidy tibbles', R package version 1.0.5, viewed 29 April 2026, <https://CRAN.R-project.org/package=broom>.
+
+The Merino Polo 2020, 'The decline of the Australian Merino industry since 1990 and why it's time for a revival', The Merino Polo, viewed 29 April 2026, <https://themerinopolo.com.au/blogs/news/the-decline-of-the-australian-merino-industry-since-1990-and-why-it-s-time-for-a-revival>.
+
+Tran, LVT & Pham, TT 2024, 'Seasonal ACF/PACF, sort.score, and residual.analysis helper functions', unpublished R functions, MATH1318, RMIT University, Melbourne.
+
+Trapletti, A & Hornik, K 2024, 'tseries: time series analysis and computational finance', R package version 0.10-56, viewed 29 April 2026, <https://CRAN.R-project.org/package=tseries>.
+
+Wickham, H, François, R, Henry, L, Müller, K & Vaughan, D 2023, 'dplyr: a grammar of data manipulation', R package version 1.1.4, viewed 29 April 2026, <https://CRAN.R-project.org/package=dplyr>.
+
+Xie, Y 2024, 'knitr: a general-purpose package for dynamic report generation in R', R package version 1.48, viewed 29 April 2026, <https://CRAN.R-project.org/package=knitr>.
+
+Zeileis, A & Hothorn, T 2002, 'Diagnostic checking in regression relationships', *R News*, vol. 2, no. 3, pp. 7–10, viewed 29 April 2026, <https://CRAN.R-project.org/doc/Rnews/>.
+
+Zhu, H 2024, 'kableExtra: construct complex table with kable and pipe syntax', R package version 1.4.0, viewed 29 April 2026, <https://CRAN.R-project.org/package=kableExtra>.
+
+------------------------------------------------------------------------
