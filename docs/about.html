@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>About – Forecasting ASX Stocks</title>
+<title>So What? – SARIMA Modeling of Australian Wool Trade Cycles</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -4754,7 +4754,7 @@ vertical-align: -.125em;
       <div class="navbar-container container-fluid">
       <div class="navbar-brand-container mx-auto">
     <a class="navbar-brand" href="./index.html">
-    <span class="navbar-title">Forecasting ASX Stocks</span>
+    <span class="navbar-title">SARIMA Modeling of Australian Wool Trade Cycles</span>
     </a>
   </div>
             <div id="quarto-search" class title="Search"></div>
@@ -4779,7 +4779,7 @@ vertical-align: -.125em;
 <span class="menu-text"></span></a>
   </li>  
   <li class="nav-item compact">
-    <a class="nav-link" href="https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks"> <i class="bi bi-github" role="img" aria-label="GitHub">
+    <a class="nav-link" href="https://github.com/Yemunn-Soe/Forecasting-Wool-Trade-with-SARIMA"> <i class="bi bi-github" role="img" aria-label="GitHub">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -4798,11 +4798,12 @@ vertical-align: -.125em;
     <h2 id="toc-title">Contents</h2>
    
   <ul>
-  <li><a href="#about-me" id="toc-about-me" class="nav-link active" data-scroll-target="#about-me"><span class="header-section-number">1</span> About Me</a></li>
-  <li><a href="#why-this-project" id="toc-why-this-project" class="nav-link" data-scroll-target="#why-this-project"><span class="header-section-number">2</span> Why This Project?</a></li>
-  <li><a href="#project-goal" id="toc-project-goal" class="nav-link" data-scroll-target="#project-goal"><span class="header-section-number">3</span> Project Goal</a></li>
-  <li><a href="#tools-technologies" id="toc-tools-technologies" class="nav-link" data-scroll-target="#tools-technologies"><span class="header-section-number">4</span> Tools &amp; Technologies</a></li>
-  <li><a href="#lets-connect" id="toc-lets-connect" class="nav-link" data-scroll-target="#lets-connect"><span class="header-section-number">5</span> Let’s Connect</a></li>
+  <li><a href="#australias-wool-trade" id="toc-australias-wool-trade" class="nav-link active" data-scroll-target="#australias-wool-trade"><span class="header-section-number">1</span> Australia’s Wool Trade</a></li>
+  <li><a href="#what-is-sarima-and-why-use-it-here" id="toc-what-is-sarima-and-why-use-it-here" class="nav-link" data-scroll-target="#what-is-sarima-and-why-use-it-here"><span class="header-section-number">2</span> What Is SARIMA, and Why Use It Here?</a></li>
+  <li><a href="#so-what-translating-the-forecast-into-decisions" id="toc-so-what-translating-the-forecast-into-decisions" class="nav-link" data-scroll-target="#so-what-translating-the-forecast-into-decisions"><span class="header-section-number">3</span> So What? Translating the Forecast into Decisions</a></li>
+  <li><a href="#what-the-model-cannot-do-and-why-that-matters-too" id="toc-what-the-model-cannot-do-and-why-that-matters-too" class="nav-link" data-scroll-target="#what-the-model-cannot-do-and-why-that-matters-too"><span class="header-section-number">4</span> What the Model Cannot Do — and Why That Matters Too</a></li>
+  <li><a href="#the-bottom-line" id="toc-the-bottom-line" class="nav-link" data-scroll-target="#the-bottom-line"><span class="header-section-number">5</span> The Bottom Line</a></li>
+  <li><a href="#lets-connect" id="toc-lets-connect" class="nav-link" data-scroll-target="#lets-connect"><span class="header-section-number">6</span> Let’s Connect</a></li>
   </ul>
 <div class="toc-actions"><ul><li><a href="https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks/edit/main/about.qmd" class="toc-action"><i class="bi bi-github"></i>Edit this page</a></li><li><a href="https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks/issues/new" class="toc-action"><i class="bi empty"></i>Report an issue</a></li></ul></div></nav>
 </nav>
@@ -4815,7 +4816,7 @@ vertical-align: -.125em;
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<div class="quarto-title-block"><div><h1 class="title">About</h1><button type="button" class="btn code-tools-button" id="quarto-code-tools-source"><i class="bi"></i> Code</button></div></div>
+<div class="quarto-title-block"><div><h1 class="title">So What?</h1><button type="button" class="btn code-tools-button" id="quarto-code-tools-source"><i class="bi"></i> Code</button></div></div>
 </div>
 
 
@@ -4832,36 +4833,43 @@ vertical-align: -.125em;
 </header>
 
 
-<section id="about-me" class="level2" data-number="1">
-<h2 data-number="1" class="anchored" data-anchor-id="about-me"><span class="header-section-number">1</span> About Me</h2>
-<p>I’m an analytics professional with over seven years of experience turning complex data into clear, actionable insights. That experience taught me a crucial lesson: technical fluency is meaningless without a deep understanding of the problem, operational logic, and cross-functional collaboration. A reliable system isn’t just about clean code or automated pipelines—it’s built on communication and a shared understanding of the goal.</p>
-<p>My work has always been driven by a single question: How can information systems create tangible, positive impact for people with the least margin for error?</p>
+<section id="australias-wool-trade" class="level2" data-number="1">
+<h2 data-number="1" class="anchored" data-anchor-id="australias-wool-trade"><span class="header-section-number">1</span> Australia’s Wool Trade</h2>
+<p>Australia has long been the world’s dominant supplier of fine wool. Today, wool and sheepskin exports contribute more than AU$3.5 billion annually to the national economy, sustaining thousands of farming families across New South Wales, Victoria, and Western Australia. But beneath that headline figure lies a commodity story defined by dramatic boom-and-bust cycles, structural shocks, and persistent seasonal rhythms that have shaped, and at times devastated, the industry.</p>
+<p>The most defining moment in modern wool market history came in February 1991, when the Australian Wool Corporation’s Reserve Price Scheme collapsed. For years, the scheme had artificially propped up wool prices by guaranteeing a floor price and stockpiling surplus product. When the stockpile became financially unsustainable, the scheme was abandoned overnight. Prices fell by nearly 50% within months. Farmers destocked, regional communities contracted, and the industry spent most of the 1990s in structural decline. This single event permanently altered the long-term trajectory of Australia’s wool trade — a “before and after” line that any serious analysis of the data must account for.</p>
+<p>Within that broader arc, the wool trade also follows a deeply seasonal rhythm. Australia’s wool clip, the annual shearing cycle, drives predictable surges in export activity during the December–March period as freshly shorn wool moves through the supply chain. Trade values reliably trough around August, before recovering through the second half of the year. This within-year pattern has held consistently for decades, making seasonality one of the most exploitable structural features of the series for forecasting purposes.</p>
 </section>
-<section id="why-this-project" class="level2" data-number="2">
-<h2 data-number="2" class="anchored" data-anchor-id="why-this-project"><span class="header-section-number">2</span> Why This Project?</h2>
-<p>This project was born out of my strong interest in finance, statsitics, time series analysis forecasting and modelling. It started with my professors, gained momentum from a book, and came to life through a workshop.</p>
-<p><strong>Dr Haydar Demirhan</strong> at <strong>RMIT University</strong>, whose teaching and encouragement pushed me to tackle a real-world forecasting project. He taught me something I’ll never forget: AI can generate statistical output, but it cannot replicate human judgment. It cannot interpret evidence, weigh competing models, or make the informed decisions that drive genuine analysis forward.</p>
-<p>Around the same time, a former manager handed me a book that would become my practical bible <strong>Forecasting: Principles and Practice (3rd ed.)</strong> by Rob J Hyndman and George Athanasopoulos (<a href="https://otexts.com/fpp3/">FPP3</a>), practical guide to time series forecasting.</p>
-<p>Then came the moment that truly opened my eyes. I attended a workshop organised by Professor Hyndman’s PhD student <strong>Mitchell O’Hara-Wild’s “Forecasting with fable” at WOMBAT 2025</strong> (<a href="https://workshop.nectric.com.au/fable-wombat2025/">workshop link</a>). That session opened my eyes to the power of modern forecasting tools in R, especially the <code>fable</code> ecosystem.</p>
-<p>This project is the intersection of everything I’ve learned: statistical rigour, practical tools, and the human judgment in this process.</p>
+<section id="what-is-sarima-and-why-use-it-here" class="level2" data-number="2">
+<h2 data-number="2" class="anchored" data-anchor-id="what-is-sarima-and-why-use-it-here"><span class="header-section-number">2</span> What Is SARIMA, and Why Use It Here?</h2>
+<p>The Seasonal Autoregressive Integrated Moving Average model — SARIMA — is one of the most well-established statistical frameworks for forecasting time series data that exhibits both trend and seasonality. To understand why it fits the wool trade so well, it helps to unpack what the model is actually doing.</p>
+<p>A time series like monthly wool export values carries memory. This month’s trade value is correlated with last month’s, and with the same month last year. That memory has two distinct components: short-run momentum (how recent values influence the immediate next observation) and seasonal cyclicality (how the same calendar period behaves year after year). SARIMA captures both simultaneously.</p>
+<p>The “Integrated” component handles the trend problem. Raw wool export values are non-stationary — they drift upward and downward over decades, making direct statistical modelling unreliable. Differencing the series (subtracting each observation from the one before it) removes that drift and converts the series into stationary fluctuations around a stable mean. One regular difference handles the trend; one seasonal difference removes the annual cycle’s mean-shifting component.</p>
+<p>The “Autoregressive” and “Moving Average” components then model what remains: the short-run correlation structure of those stationary fluctuations. Autoregressive terms capture the influence of past values on the current value — the momentum effect. Moving average terms capture the lingering influence of past shocks — how an unexpected spike or trough in one month echoes through the subsequent months before fading.</p>
+<p>Before any of this modelling could proceed, a Box-Cox transformation was applied to the raw data. The amplitude of wool price fluctuations was dramatically larger during the 1985–1991 commodity boom than in surrounding decades, a classic case of heteroscedasticity, where the variance of the series changes over time. The transformation (with an estimated power parameter of λ = 0.34, close to a cube-root transformation) compressed the larger fluctuations and stabilised the variance, ensuring that the model wasn’t disproportionately fitted to the most volatile era at the expense of the rest of the sample.</p>
+<p>After this sequential process of transformation, differencing, and model identification through ACF, PACF, EACF, and BIC analysis, eleven candidate SARIMA models were evaluated. The final selected model, SARIMA(3,1,1)(0,1,2)₁₂, captures three months of autoregressive momentum, one moving average shock term, one seasonal difference, and two seasonal moving average terms operating at a 12-month period. All parameters are statistically significant, residuals behave as white noise, and the model passes overfitting verification: neither adding a fourth AR term nor a second MA term improves the model — in fact, both directions collapse the non-seasonal structure entirely, confirming that the three-AR specification is precisely sufficient.</p>
 </section>
-<section id="project-goal" class="level2" data-number="3">
-<h2 data-number="3" class="anchored" data-anchor-id="project-goal"><span class="header-section-number">3</span> Project Goal</h2>
-<p>I chose to forecast ASX stocks for one reason: financial markets are challenging, dynamic, and full of fascinating patterns.</p>
-<p>This site is my attempt to: - Apply the methods I’ve learned - Share reproducible analysis with <strong>Quarto</strong> and R - Build a portfolio that proves my skills in forecasting and data science</p>
+<section id="so-what-translating-the-forecast-into-decisions" class="level2" data-number="3">
+<h2 data-number="3" class="anchored" data-anchor-id="so-what-translating-the-forecast-into-decisions"><span class="header-section-number">3</span> So What? Translating the Forecast into Decisions</h2>
+<p>This is where the analysis moves from statistical exercise to operational value. The 30-month forecast generated by the final model projects a characteristic seasonal pattern repeating coherently across 2026–2028: a peak around March (approximately AU$385 million in March 2026, declining modestly to AU$358 million by March 2028), a mid-year trough around August (AU$206 million in 2026), and a secondary recovery toward December (AU$313 million). Point forecasts show a gentle downward drift across the horizon, with widening 95% prediction intervals that honestly reflect compounding uncertainty over time.</p>
+<p><strong>For wool producers</strong>, this pattern directly aligns with biological decision timelines. Shearing decisions, stocking rate adjustments, and forward contract negotiations happen 6–12 months before the fleece actually moves. Having a statistically grounded forecast of the trade value trajectory — rather than relying on last season’s prices or industry sentiment — allows producers to time their clip sales into projected demand peaks and hedge against the mid-year trough. The model’s gradual downward drift across the forecast horizon is itself a signal worth heeding: it suggests that simply holding product in expectation of ongoing price strength may not be the optimal strategy.</p>
+<p><strong>For exporters and logistics firms</strong>, the December demand surge — visible and quantifiable across all three forecast years — provides lead time that has direct commercial value. Ocean freight container bookings on the Australia–China and Australia–Europe wool corridors need to be secured well in advance of peak periods. Cold store and wool store warehouse capacity in major port cities similarly requires forward planning. The SARIMA forecast converts an historically “known but unmeasurable” seasonal surge into a specific, interval-bounded projection that can anchor capacity planning conversations with shipping lines and third-party logistics providers.</p>
+<p><strong>For agricultural policymakers and trade analysts</strong>, the widening prediction intervals are perhaps the most important output. The 95% interval for August 2026 trade values spans from AU$120 million to AU$327 million — a range of AU$207 million. By August 2028, that range widens to AU$305 million. These intervals are not a weakness of the model; they are an honest quantification of how uncertain the wool trade genuinely is two to three years out. Policy stress-testing that assumes the point forecast will materialise is systematically overconfident. Budget projections, export credit programs, and agricultural support mechanisms that don’t account for the lower bound of the forecast range are exposed to the same kind of tail-event risk that made the 1991 collapse so catastrophic.</p>
 </section>
-<section id="tools-technologies" class="level2" data-number="4">
-<h2 data-number="4" class="anchored" data-anchor-id="tools-technologies"><span class="header-section-number">4</span> Tools &amp; Technologies</h2>
-<ul>
-<li><strong>R</strong> and <strong>Quarto</strong> for reproducible reporting and this website</li>
-<li><strong>GitHub Pages</strong> for hosting</li>
-</ul>
+<section id="what-the-model-cannot-do-and-why-that-matters-too" class="level2" data-number="4">
+<h2 data-number="4" class="anchored" data-anchor-id="what-the-model-cannot-do-and-why-that-matters-too"><span class="header-section-number">4</span> What the Model Cannot Do — and Why That Matters Too</h2>
+<p>A SARIMA framework is powerful precisely because it does one thing very well: it extracts and projects the patterns already embedded in the historical data. It cannot anticipate a future trade policy shock, a new entrant disrupting the global fine wool supply chain, or a repeat of a pandemic-scale demand collapse. The structural break of 1991 is a permanent feature of this dataset; the model accounts for its aftermath but cannot have predicted it in advance.</p>
+<p>This limitation is not a reason to dismiss the forecast — it is a reason to use it correctly. The SARIMA output is most valuable as a baseline scenario: what happens if the current structural regime continues and no major external shock occurs. Deviations from that baseline — when actual trade data begins arriving each month — are themselves informative signals. A sustained underperformance relative to the forecast may indicate an emerging structural shift that warrants intervention. An overperformance may indicate unmodelled demand drivers worth investigating.</p>
+<p>The analysis also conducted a separate post-break sub-series analysis (1990–2026) that identified a structurally different SARIMA(0,1,2)(2,1,2)₁₂ model for the modern era — confirming that the data-generating processes before and after the Reserve Price Scheme collapse are genuinely distinct. For near-term decision-making, this post-break model may offer more relevant signal, since it is fitted exclusively to the market regime that currently exists.</p>
 </section>
-<section id="lets-connect" class="level2" data-number="5">
-<h2 data-number="5" class="anchored" data-anchor-id="lets-connect"><span class="header-section-number">5</span> Let’s Connect</h2>
+<section id="the-bottom-line" class="level2" data-number="5">
+<h2 data-number="5" class="anchored" data-anchor-id="the-bottom-line"><span class="header-section-number">5</span> The Bottom Line</h2>
+<p>Fifty-five years of monthly wool trade data, processed through a rigorous statistical pipeline, converges on a clear message: Australian wool exports follow a predictable seasonal cycle with a gradual moderating trend, and that cycle can be quantified with enough precision to be operationally useful. The SARIMA(3,1,1)(0,1,2)₁₂ model doesn’t eliminate uncertainty — nothing can — but it replaces vague expectation with calibrated probability ranges that can anchor real decisions about stocking, shipping, warehousing, and policy. In a commodity sector where the difference between correctly timed and poorly timed decisions can span tens of millions of dollars, that is not a minor improvement. It is the difference between reactive management and genuine foresight.</p>
+<hr>
+</section>
+<section id="lets-connect" class="level2" data-number="6">
+<h2 data-number="6" class="anchored" data-anchor-id="lets-connect"><span class="header-section-number">6</span> Let’s Connect</h2>
 <ul>
 <li><a href="https://www.linkedin.com/in/yemunn-soe/">My LinkedIn</a></li>
-<li><a href="https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks">GitHub repository for this project</a></li>
 </ul>
 <p>Thanks for visiting!</p>
 
@@ -5340,48 +5348,60 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 });
 </script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class>
 <div class="sourceCode" id="cb1" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> &quot;About&quot;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> &quot;So What?&quot;</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">## About Me</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">## Australia&#39;s Wool Trade</span></span>
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>I&#39;m an analytics professional with over seven years of experience turning complex data into clear, actionable insights. That experience taught me a crucial lesson: technical fluency is meaningless without a deep understanding of the problem, operational logic, and cross-functional collaboration. A reliable system isn&#39;t just about clean code or automated pipelines—it&#39;s built on communication and a shared understanding of the goal.</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>Australia has long been the world&#39;s dominant supplier of fine wool. Today, wool and sheepskin exports contribute more than AU\$3.5 billion annually to the national economy, sustaining thousands of farming families across New South Wales, Victoria, and Western Australia. But beneath that headline figure lies a commodity story defined by dramatic boom-and-bust cycles, structural shocks, and persistent seasonal rhythms that have shaped, and at times devastated, the industry.</span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>My work has always been driven by a single question: How can information systems create tangible, positive impact for people with the least margin for error?</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>The most defining moment in modern wool market history came in February 1991, when the Australian Wool Corporation&#39;s Reserve Price Scheme collapsed. For years, the scheme had artificially propped up wool prices by guaranteeing a floor price and stockpiling surplus product. When the stockpile became financially unsustainable, the scheme was abandoned overnight. Prices fell by nearly 50% within months. Farmers destocked, regional communities contracted, and the industry spent most of the 1990s in structural decline. This single event permanently altered the long-term trajectory of Australia&#39;s wool trade — a &quot;before and after&quot; line that any serious analysis of the data must account for.</span>
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="fu">## Why This Project?</span></span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>This project was born out of my strong interest in finance, statsitics, time series analysis forecasting and modelling. It started with my professors, gained momentum from a book, and came to life through a workshop.</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>**Dr Haydar Demirhan** at **RMIT University**, whose teaching and encouragement pushed me to tackle a real-world forecasting project. He taught me something I&#39;ll never forget: AI can generate statistical output, but it cannot replicate human judgment. It cannot interpret evidence, weigh competing models, or make the informed decisions that drive genuine analysis forward.</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>Around the same time, a former manager handed me a book that would become my practical bible **Forecasting: Principles and Practice (3rd ed.)** by Rob J Hyndman and George Athanasopoulos (<span class="co">[</span><span class="ot">FPP3</span><span class="co">](https://otexts.com/fpp3/)</span>), practical guide to time series forecasting.</span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>Then came the moment that truly opened my eyes. I attended a workshop organised by Professor Hyndman&#39;s PhD student **Mitchell O’Hara-Wild’s “Forecasting with fable” at WOMBAT 2025** (<span class="co">[</span><span class="ot">workshop link</span><span class="co">](https://workshop.nectric.com.au/fable-wombat2025/)</span>). That session opened my eyes to the power of modern forecasting tools in R, especially the <span class="in">`fable`</span> ecosystem.</span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>This project is the intersection of everything I&#39;ve learned: statistical rigour, practical tools, and the human judgment in this process.</span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="fu">## Project Goal</span></span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>I chose to forecast ASX stocks for one reason: financial markets are challenging, dynamic, and full of fascinating patterns.</span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>This site is my attempt to:</span>
-<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Apply the methods I&#39;ve learned</span>
-<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Share reproducible analysis with **Quarto** and R</span>
-<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>Build a portfolio that proves my skills in forecasting and data science</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>Within that broader arc, the wool trade also follows a deeply seasonal rhythm. Australia&#39;s wool clip, the annual shearing cycle, drives predictable surges in export activity during the December–March period as freshly shorn wool moves through the supply chain. Trade values reliably trough around August, before recovering through the second half of the year. This within-year pattern has held consistently for decades, making seasonality one of the most exploitable structural features of the series for forecasting purposes.</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="fu">## What Is SARIMA, and Why Use It Here?</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>The Seasonal Autoregressive Integrated Moving Average model — SARIMA — is one of the most well-established statistical frameworks for forecasting time series data that exhibits both trend and seasonality. To understand why it fits the wool trade so well, it helps to unpack what the model is actually doing.</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>A time series like monthly wool export values carries memory. This month&#39;s trade value is correlated with last month&#39;s, and with the same month last year. That memory has two distinct components: short-run momentum (how recent values influence the immediate next observation) and seasonal cyclicality (how the same calendar period behaves year after year). SARIMA captures both simultaneously.</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>The &quot;Integrated&quot; component handles the trend problem. Raw wool export values are non-stationary — they drift upward and downward over decades, making direct statistical modelling unreliable. Differencing the series (subtracting each observation from the one before it) removes that drift and converts the series into stationary fluctuations around a stable mean. One regular difference handles the trend; one seasonal difference removes the annual cycle&#39;s mean-shifting component.</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>The &quot;Autoregressive&quot; and &quot;Moving Average&quot; components then model what remains: the short-run correlation structure of those stationary fluctuations. Autoregressive terms capture the influence of past values on the current value — the momentum effect. Moving average terms capture the lingering influence of past shocks — how an unexpected spike or trough in one month echoes through the subsequent months before fading.</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>Before any of this modelling could proceed, a Box-Cox transformation was applied to the raw data. The amplitude of wool price fluctuations was dramatically larger during the 1985–1991 commodity boom than in surrounding decades, a classic case of heteroscedasticity, where the variance of the series changes over time. The transformation (with an estimated power parameter of λ = 0.34, close to a cube-root transformation) compressed the larger fluctuations and stabilised the variance, ensuring that the model wasn&#39;t disproportionately fitted to the most volatile era at the expense of the rest of the sample.</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>After this sequential process of transformation, differencing, and model identification through ACF, PACF, EACF, and BIC analysis, eleven candidate SARIMA models were evaluated. The final selected model, SARIMA(3,1,1)(0,1,2)₁₂, captures three months of autoregressive momentum, one moving average shock term, one seasonal difference, and two seasonal moving average terms operating at a 12-month period. All parameters are statistically significant, residuals behave as white noise, and the model passes overfitting verification: neither adding a fourth AR term nor a second MA term improves the model — in fact, both directions collapse the non-seasonal structure entirely, confirming that the three-AR specification is precisely sufficient.</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="fu">## So What? Translating the Forecast into Decisions</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>This is where the analysis moves from statistical exercise to operational value. The 30-month forecast generated by the final model projects a characteristic seasonal pattern repeating coherently across 2026–2028: a peak around March (approximately AU\$385 million in March 2026, declining modestly to AU\$358 million by March 2028), a mid-year trough around August (AU\$206 million in 2026), and a secondary recovery toward December (AU\$313 million). Point forecasts show a gentle downward drift across the horizon, with widening 95% prediction intervals that honestly reflect compounding uncertainty over time.</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>**For wool producers**, this pattern directly aligns with biological decision timelines. Shearing decisions, stocking rate adjustments, and forward contract negotiations happen 6–12 months before the fleece actually moves. Having a statistically grounded forecast of the trade value trajectory — rather than relying on last season&#39;s prices or industry sentiment — allows producers to time their clip sales into projected demand peaks and hedge against the mid-year trough. The model&#39;s gradual downward drift across the forecast horizon is itself a signal worth heeding: it suggests that simply holding product in expectation of ongoing price strength may not be the optimal strategy.</span>
 <span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a><span class="fu">## Tools &amp; Technologies</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>**For exporters and logistics firms**, the December demand surge — visible and quantifiable across all three forecast years — provides lead time that has direct commercial value. Ocean freight container bookings on the Australia–China and Australia–Europe wool corridors need to be secured well in advance of peak periods. Cold store and wool store warehouse capacity in major port cities similarly requires forward planning. The SARIMA forecast converts an historically &quot;known but unmeasurable&quot; seasonal surge into a specific, interval-bounded projection that can anchor capacity planning conversations with shipping lines and third-party logistics providers.</span>
 <span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**R** and **Quarto** for reproducible reporting and this website</span>
-<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**GitHub Pages** for hosting</span>
-<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a><span class="fu">## Let’s Connect</span></span>
-<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="co">[</span><span class="ot">My LinkedIn</span><span class="co">](https://www.linkedin.com/in/yemunn-soe/)</span></span>
-<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="co">[</span><span class="ot">GitHub repository for this project</span><span class="co">](https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks)</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>**For agricultural policymakers and trade analysts**, the widening prediction intervals are perhaps the most important output. The 95% interval for August 2026 trade values spans from AU\$120 million to AU\$327 million — a range of AU\$207 million. By August 2028, that range widens to AU\$305 million. These intervals are not a weakness of the model; they are an honest quantification of how uncertain the wool trade genuinely is two to three years out. Policy stress-testing that assumes the point forecast will materialise is systematically overconfident. Budget projections, export credit programs, and agricultural support mechanisms that don&#39;t account for the lower bound of the forecast range are exposed to the same kind of tail-event risk that made the 1991 collapse so catastrophic.</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a><span class="fu">## What the Model Cannot Do — and Why That Matters Too</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>A SARIMA framework is powerful precisely because it does one thing very well: it extracts and projects the patterns already embedded in the historical data. It cannot anticipate a future trade policy shock, a new entrant disrupting the global fine wool supply chain, or a repeat of a pandemic-scale demand collapse. The structural break of 1991 is a permanent feature of this dataset; the model accounts for its aftermath but cannot have predicted it in advance.</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>This limitation is not a reason to dismiss the forecast — it is a reason to use it correctly. The SARIMA output is most valuable as a baseline scenario: what happens if the current structural regime continues and no major external shock occurs. Deviations from that baseline — when actual trade data begins arriving each month — are themselves informative signals. A sustained underperformance relative to the forecast may indicate an emerging structural shift that warrants intervention. An overperformance may indicate unmodelled demand drivers worth investigating.</span>
 <span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>Thanks for visiting!</span></code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal><i class="bi"></i></button></pre></div>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>The analysis also conducted a separate post-break sub-series analysis (1990–2026) that identified a structurally different SARIMA(0,1,2)(2,1,2)₁₂ model for the modern era — confirming that the data-generating processes before and after the Reserve Price Scheme collapse are genuinely distinct. For near-term decision-making, this post-break model may offer more relevant signal, since it is fitted exclusively to the market regime that currently exists.</span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a><span class="fu">## The Bottom Line</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>Fifty-five years of monthly wool trade data, processed through a rigorous statistical pipeline, converges on a clear message: Australian wool exports follow a predictable seasonal cycle with a gradual moderating trend, and that cycle can be quantified with enough precision to be operationally useful. The SARIMA(3,1,1)(0,1,2)₁₂ model doesn&#39;t eliminate uncertainty — nothing can — but it replaces vague expectation with calibrated probability ranges that can anchor real decisions about stocking, shipping, warehousing, and policy. In a commodity sector where the difference between correctly timed and poorly timed decisions can span tens of millions of dollars, that is not a minor improvement. It is the difference between reactive management and genuine foresight.</span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a><span class="fu">## Let’s Connect</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span><span class="co">[</span><span class="ot">My LinkedIn</span><span class="co">](https://www.linkedin.com/in/yemunn-soe/)</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>Thanks for visiting!</span></code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal><i class="bi"></i></button></pre></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
 

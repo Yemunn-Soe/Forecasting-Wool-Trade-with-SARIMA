@@ -9,9 +9,9 @@ website:
   repo-actions: [edit, issue]
   navbar:
     left:
-      - href: Wool_Trade_SARIMA.qmd
+      - href: index.qmd
         text: Analysis
-      - href: About.qmd
+      - href: about.qmd
         text: So What
     right:
       - icon: linkedin

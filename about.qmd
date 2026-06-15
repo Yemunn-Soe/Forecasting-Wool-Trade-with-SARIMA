@@ -51,6 +51,5 @@ Fifty-five years of monthly wool trade data, processed through a rigorous statis
 ## Let’s Connect
 
 -   [My LinkedIn](https://www.linkedin.com/in/yemunn-soe/)
--   [GitHub repository for this project](https://github.com/Yemunn-Soe/Forecasting-ASX-Stocks)
 
 Thanks for visiting!
