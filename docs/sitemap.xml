@@ -1,19 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>/index.html</loc>
-    <lastmod>2026-03-31T10:25:07.124Z</lastmod>
-  </url>
-  <url>
-    <loc>/about.html</loc>
-    <lastmod>2026-03-31T10:25:07.124Z</lastmod>
-  </url>
-  <url>
-    <loc>https://Yemunn-Soe.github.io/Forecasting-ASX-Stocks/index.html</loc>
-    <lastmod>2026-06-15T12:10:31.525Z</lastmod>
-  </url>
-  <url>
-    <loc>https://Yemunn-Soe.github.io/Forecasting-ASX-Stocks/about.html</loc>
+    <loc>https://Yemunn-Soe.github.io/Forecasting-Wool-Trade-with-SARIMA/about.html</loc>
     <lastmod>2026-06-15T12:36:51.560Z</lastmod>
+  </url>
+  <url>
+    <loc>https://Yemunn-Soe.github.io/Forecasting-Wool-Trade-with-SARIMA/index.html</loc>
+    <lastmod>2026-06-15T12:35:34.893Z</lastmod>
   </url>
 </urlset>

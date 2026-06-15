@@ -1,1 +1,1 @@
-Sitemap: https://Yemunn-Soe.github.io/Forecasting-ASX-Stocks/sitemap.xml
+Sitemap: https://Yemunn-Soe.github.io/Forecasting-Wool-Trade-with-SARIMA/sitemap.xml
